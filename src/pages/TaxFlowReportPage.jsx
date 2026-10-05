@@ -973,8 +973,15 @@ export default function TaxFlowReportPage() {
                 </tr>
               ) : visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-14 text-center text-sm text-slate-500">
-                    No data found for the selected filters.
+                  <td colSpan={11} className="px-6 py-10 text-center text-sm text-slate-500">
+                    <div>No invoice data found for the selected filters. GST, TDS, and PO totals are based on invoices.</div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("ledger")}
+                      className="mt-3 font-semibold text-blue-600 hover:text-blue-700"
+                    >
+                      View journal-backed Ledger Report
+                    </button>
                   </td>
                 </tr>
               ) : (
