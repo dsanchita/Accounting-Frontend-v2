@@ -21,11 +21,11 @@ jobs:
           lfs: false
       - name: Set environment variables from secrets
         run: |
-          echo "VITE_AZURE_CLIENT_ID=\${{ secrets.PROD_VITE_AZURE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "VITE_AZURE_TENANT_ID=\${{ secrets.PROD_VITE_AZURE_TENANT_ID }}" >> $GITHUB_ENV
-          echo "VITE_AZURE_REDIRECT_URL=\${{ secrets.PROD_VITE_AZURE_REDIRECT_URL }}" >> $GITHUB_ENV
-          echo "VITE_AZURE_BACKEND_CLIENT_ID=\${{ secrets.PROD_VITE_AZURE_BACKEND_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "VITE_API_URL=\${{ secrets.PROD_VITE_API_URL }}" >> $GITHUB_ENV
+          echo "VITE_AZURE_CLIENT_ID=${{ secrets.PROD_VITE_AZURE_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "VITE_AZURE_TENANT_ID=${{ secrets.PROD_VITE_AZURE_TENANT_ID }}" >> $GITHUB_ENV
+          echo "VITE_AZURE_REDIRECT_URL=${{ secrets.PROD_VITE_AZURE_REDIRECT_URL }}" >> $GITHUB_ENV
+          echo "VITE_AZURE_BACKEND_CLIENT_ID=${{ secrets.PROD_VITE_AZURE_BACKEND_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "VITE_API_URL=${{ secrets.PROD_VITE_API_URL }}" >> $GITHUB_ENV
           echo "VITE_COOKIE_SECURE=true" >> $GITHUB_ENV
       - name: Print environment variables
         run: |
@@ -37,11 +37,11 @@ jobs:
           echo "VITE_COOKIE_SECURE=$VITE_COOKIE_SECURE"
       - name: Verify Build Environment
         env:
-          VITE_AZURE_CLIENT_ID: \${{ secrets.PROD_VITE_AZURE_CLIENT_ID }}
-          VITE_AZURE_TENANT_ID: \${{ secrets.PROD_VITE_AZURE_TENANT_ID }}
-          VITE_AZURE_REDIRECT_URL: \${{ secrets.PROD_VITE_AZURE_REDIRECT_URL }}
-          VITE_AZURE_BACKEND_CLIENT_ID: \${{ secrets.PROD_VITE_AZURE_BACKEND_CLIENT_ID }}
-          VITE_API_URL: \${{ secrets.PROD_VITE_API_URL }}
+          VITE_AZURE_CLIENT_ID: ${{ secrets.PROD_VITE_AZURE_CLIENT_ID }}
+          VITE_AZURE_TENANT_ID: ${{ secrets.PROD_VITE_AZURE_TENANT_ID }}
+          VITE_AZURE_REDIRECT_URL: ${{ secrets.PROD_VITE_AZURE_REDIRECT_URL }}
+          VITE_AZURE_BACKEND_CLIENT_ID: ${{ secrets.PROD_VITE_AZURE_BACKEND_CLIENT_ID }}
+          VITE_API_URL: ${{ secrets.PROD_VITE_API_URL }}
           VITE_COOKIE_SECURE: "true"
         run: |
           echo "Environment variables are set (masked for security):"
@@ -55,15 +55,15 @@ jobs:
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
         env:
-           VITE_AZURE_CLIENT_ID: \${{ secrets.PROD_VITE_AZURE_CLIENT_ID }}
-           VITE_AZURE_TENANT_ID: \${{ secrets.PROD_VITE_AZURE_TENANT_ID }}
-           VITE_AZURE_REDIRECT_URL: \${{ secrets.PROD_VITE_AZURE_REDIRECT_URL }}
-           VITE_AZURE_BACKEND_CLIENT_ID: \${{ secrets.PROD_VITE_AZURE_BACKEND_CLIENT_ID }}
-           VITE_API_URL: \${{ secrets.PROD_VITE_API_URL }}
+           VITE_AZURE_CLIENT_ID: ${{ secrets.PROD_VITE_AZURE_CLIENT_ID }}
+           VITE_AZURE_TENANT_ID: ${{ secrets.PROD_VITE_AZURE_TENANT_ID }}
+           VITE_AZURE_REDIRECT_URL: ${{ secrets.PROD_VITE_AZURE_REDIRECT_URL }}
+           VITE_AZURE_BACKEND_CLIENT_ID: ${{ secrets.PROD_VITE_AZURE_BACKEND_CLIENT_ID }}
+           VITE_API_URL: ${{ secrets.PROD_VITE_API_URL }}
            VITE_COOKIE_SECURE: "true"
         with:
-          azure_static_web_apps_api_token: \${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_JOLLY_DESERT_04ABC6503 }}
-          repo_token: \${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_JOLLY_DESERT_04ABC6503 }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
           action: "upload"
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
@@ -81,5 +81,5 @@ jobs:
         id: closepullrequest
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: \${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_JOLLY_DESERT_04ABC6503 }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_JOLLY_DESERT_04ABC6503 }}
           action: "close"
