@@ -257,9 +257,14 @@ const toProfitLossRowsAndNotes = (report = {}) => {
 
 export const getScheduleIIIBalanceSheetApi = async (companyId, params, signal) => {
   const { asOfDate } = getPeriodDates(params);
+  const endingYear = Number.parseInt(params?.year, 10);
+  const financialYearStartDate = Number.isFinite(endingYear)
+    ? new Date(endingYear - 1, 3, 1)
+    : new Date(asOfDate.getFullYear() - (asOfDate.getMonth() < 3 ? 1 : 0), 3, 1);
   const { data } = await API.get(`/accounting/report/${companyId}/balance-sheet`, {
     params: {
       asOfDate: formatDate(asOfDate),
+      periodStartDate: formatDate(financialYearStartDate),
     },
     signal,
   });
@@ -276,20 +281,15 @@ export const getScheduleIIIBalanceSheetApi = async (companyId, params, signal) =
       reportPeriodLabel: `As of ${formatDisplayDate(asOfDate)}`,
       rows,
       notes,
-      issues: report.validation?.assetsEqualLiabilitiesPlusEquity
-        ? []
-        : [
-            {
-              code: "balance-mismatch",
-              message: `Assets and Equity/Liabilities differ by ${Number(
-                report.validation?.difference || 0
-              ).toFixed(2)}`,
-            },
-          ],
+      issues: (report.validation?.mappingIssues || []).map((account) => ({
+        code: "unmapped-ledger",
+        message: `Ledger ${account.accountCode ? `${account.accountCode} - ` : ""}${account.accountName || "Unknown"} has a missing or invalid Schedule III mapping.`,
+      })),
       warnings: [],
       summary: {
         totalAssets: Number(report.assets?.total || 0),
         totalEquityLiabilities: Number(report.liabilitiesAndEquity?.total || 0),
+        profitTransferredToReserves: Number(report.profitTransferredToReserves || 0),
         difference: Number(report.validation?.difference || 0),
         isBalanced: Boolean(report.validation?.assetsEqualLiabilitiesPlusEquity),
       },
