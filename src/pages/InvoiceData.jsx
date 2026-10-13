@@ -573,6 +573,11 @@ const InvoiceData = () => {
   const handleCreateLedgerClick = async (invoice, e) => {
     e.stopPropagation();
 
+    if (invoice.approvalStatus !== "Approved") {
+      toast.warning("Sales journal can only be posted for approved invoices");
+      return;
+    }
+
     // Check if sales journal already posted
     if (invoice.salesJournalId) {
       toast.info("Sales journal already posted for this invoice");
@@ -1787,45 +1792,51 @@ const InvoiceData = () => {
                                 </Link>
                               )}
 
-                            <button
-                              onClick={(e) =>
-                                handleDownloadPdf(
-                                  invoice._id,
-                                  invoice.invoiceNo,
-                                  e,
-                                )
-                              }
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 transition-all"
-                            >
-                              <Download size={12} /> Download PDF
-                            </button>
+                            {invoice.approvalStatus === "Approved" && (
+                              <>
+                                <button
+                                  onClick={(e) =>
+                                    handleDownloadPdf(
+                                      invoice._id,
+                                      invoice.invoiceNo,
+                                      e,
+                                    )
+                                  }
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 transition-all"
+                                >
+                                  <Download size={12} /> Download PDF
+                                </button>
 
-                            <button
-                              onClick={(e) =>
-                                handleDownloadWord(
-                                  invoice._id,
-                                  invoice.invoiceNo,
-                                  e,
-                                )
-                              }
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 transition-all"
-                            >
-                              <Download size={12} /> Download Word
-                            </button>
+                                <button
+                                  onClick={(e) =>
+                                    handleDownloadWord(
+                                      invoice._id,
+                                      invoice.invoiceNo,
+                                      e,
+                                    )
+                                  }
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-full hover:bg-slate-100 transition-all"
+                                >
+                                  <Download size={12} /> Download Word
+                                </button>
+                              </>
+                            )}
 
-                            {canEditInvoice && !invoice.salesJournalId ? (
-                              <button
-                                onClick={(e) =>
-                                  handleCreateLedgerClick(invoice, e)
-                                }
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-100 rounded-full hover:bg-violet-100 transition-all"
-                              >
-                                <BookOpen size={12} /> Post Sales Journal
-                              </button>
-                            ) : (
-                              <span className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full cursor-default">
-                                <CheckCircle size={12} /> Sales Journal Posted
-                              </span>
+                            {invoice.approvalStatus === "Approved" && (
+                              canEditInvoice && !invoice.salesJournalId ? (
+                                <button
+                                  onClick={(e) =>
+                                    handleCreateLedgerClick(invoice, e)
+                                  }
+                                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-violet-700 bg-violet-50 border border-violet-100 rounded-full hover:bg-violet-100 transition-all"
+                                >
+                                  <BookOpen size={12} /> Post Sales Journal
+                                </button>
+                              ) : (
+                                <span className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full cursor-default">
+                                  <CheckCircle size={12} /> Sales Journal Posted
+                                </span>
+                              )
                             )}
 
                        
