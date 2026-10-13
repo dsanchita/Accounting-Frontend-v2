@@ -16,6 +16,7 @@ import {
   ArrowDownRight,
   Hash,
   Tag,
+  Calendar,
   CalendarDays,
   SlidersHorizontal,
   Clock,
@@ -848,22 +849,77 @@ const DayBooks = () => {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Quick Search */}
-        <div className="mb-5 relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search by narration, document ref, journal ref, account, voucher type..."
-            className="w-full pl-10 pr-4 py-2.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all font-medium placeholder-slate-400"
-          />
-          {searchQuery && (
-            <button onClick={() => handleSearchChange("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
+        {/* Quick Search and Date Range Filter */}
+        <div className="mb-5 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search by narration, document ref, journal ref, account, voucher type..."
+              className="w-full pl-10 pr-9 py-2.5 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all font-medium placeholder-slate-400"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => handleSearchChange("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                title="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Date Range Inputs beside search */}
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm shrink-0">
+            <Calendar className="h-4 w-4 text-slate-400 shrink-0" />
+            
+            {/* From Date */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">From</span>
+              <input
+                type="date"
+                value={filters.fromDate}
+                onChange={(e) => handleFilterChange("fromDate", e.target.value)}
+                className="text-xs bg-transparent border-0 text-slate-700 font-medium focus:outline-none focus:ring-0 p-0 cursor-pointer"
+                title="From Date"
+              />
+            </div>
+
+            <span className="text-slate-300 font-bold text-xs">—</span>
+
+            {/* To Date */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">To</span>
+              <input
+                type="date"
+                value={filters.toDate}
+                onChange={(e) => handleFilterChange("toDate", e.target.value)}
+                className="text-xs bg-transparent border-0 text-slate-700 font-medium focus:outline-none focus:ring-0 p-0 cursor-pointer"
+                title="To Date"
+              />
+            </div>
+
+            {/* Quick Clear Dates button if set */}
+            {(filters.fromDate || (filters.toDate && filters.toDate !== new Date().toISOString().split("T")[0])) && (
+              <button
+                onClick={() => {
+                  setFilters((prev) => ({
+                    ...prev,
+                    fromDate: "",
+                    toDate: new Date().toISOString().split("T")[0],
+                  }));
+                  setCurrentPage(1);
+                }}
+                className="ml-1 p-1 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+                title="Reset Date Range"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Table */}
