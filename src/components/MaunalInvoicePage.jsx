@@ -838,8 +838,10 @@ const buildTypedInvoicePayload = ({
 
   const payload = {
     ...invoice,
-    linkedPO: invoice.linkedPO,
-    linkedPORef: invoice.linkedPORef,
+    linkedPO: invoice.linkedPO ? invoice.linkedPO : null,
+    linkedPORef: invoice.linkedPORef || "",
+    poreferencevalue: invoice.poreferencevalue || "",
+    poNumber: invoice.linkedPORef || invoice.poreferencevalue || "",
     currency: invoice.currency || "INR",
     poType: invoice.poType || "general",
     poCategory: selectedPOInfo?.poCategory,
@@ -1294,11 +1296,12 @@ const ManualInvoicePage = () => {
           dataToLoad.linkedPO ||
           dataToLoad.purchaseOrderId ||
           dataToLoad.poId ||
-          prev.linkedPO,
+          "",
         linkedPORef:
           dataToLoad.linkedPORef ||
           dataToLoad.linkedPO?.poNumber ||
-          prev.linkedPORef,
+          dataToLoad.poNumber ||
+          "",
         invoiceDate: safeDate(dataToLoad.invoiceDate),
         dueDate: safeDate(dataToLoad.dueDate),
         paymentDueDate: safeDate(dataToLoad.paymentDueDate),
@@ -1365,6 +1368,7 @@ const ManualInvoicePage = () => {
       setSameAsBillTo(
         JSON.stringify(dataToLoad.billTo) === JSON.stringify(dataToLoad.shipTo),
       );
+      setIsFromPO(Boolean(dataToLoad.linkedPO || dataToLoad.purchaseOrderId || dataToLoad.poId));
     };
 
     const fetchInvoiceForEdit = async () => {
@@ -1823,11 +1827,11 @@ const ManualInvoicePage = () => {
       (Number(newItems[index].previousCarryForward || 0) + Number(newItems[index].currentTermAmount || 0)) ||
       newItems[index].taxableValue ||
       0;
-    const maxAllowedTaxableValue = Number(
-      newItems[index].maxAllowedTaxableValue ?? derivedTaxableLimit,
-    );
+    const maxAllowedTaxableValue = isFromPO && invoice.linkedPO
+      ? Number(newItems[index].maxAllowedTaxableValue ?? derivedTaxableLimit)
+      : 0;
 
-    if (field === "quantity" && newItems[index].poRemainingQuantity !== undefined) {
+    if (field === "quantity" && isFromPO && newItems[index].poRemainingQuantity !== undefined) {
       const maxQuantity = Number(newItems[index].poRemainingQuantity || 0);
       const parsedQuantity = parseFloat(value);
 
@@ -1845,12 +1849,26 @@ const ManualInvoicePage = () => {
       newItems[index].combinedGstRate = 0;
 
       if (selectedHsn) {
-        // GST logic - BUG FIXED: Proper GST rate calculation
+        const compState = normalizeStateCode(companyDetails.gstNumber?.slice(0, 2) || "");
+        const shipState = normalizeStateCode(invoice.shipTo.stateCode || invoice.billTo.stateCode || "");
+        const billState = normalizeStateCode(invoice.billTo.stateCode || "");
+
+        const isIntra = compState && shipState
+          ? compState === shipState
+          : (billState && shipState ? billState === shipState : true);
+
         let combinedGstRate = 0;
-        if (invoice.billTo.stateCode && invoice.shipTo.stateCode && invoice.billTo.stateCode === invoice.shipTo.stateCode) {
-          combinedGstRate = selectedHsn.cgst + selectedHsn.sgst;
+        if (isIntra) {
+          combinedGstRate = (selectedHsn.cgst || 0) + (selectedHsn.sgst || 0);
+          newItems[index].taxBreakdown = [
+            { taxType: "CGST", label: "CGST", rate: selectedHsn.cgst || 0, amount: 0 },
+            { taxType: "SGST", label: "SGST", rate: selectedHsn.sgst || 0, amount: 0 },
+          ];
         } else {
-          combinedGstRate = selectedHsn.igst;
+          combinedGstRate = selectedHsn.igst || 0;
+          newItems[index].taxBreakdown = [
+            { taxType: "IGST", label: "IGST", rate: selectedHsn.igst || 0, amount: 0 },
+          ];
         }
 
         newItems[index].gstRate = combinedGstRate;
@@ -1877,7 +1895,12 @@ const ManualInvoicePage = () => {
         0,
         parseFloat((manualTotal - taxableValue).toFixed(2)),
       );
-      const quantity = rate > 0 ? parseFloat((taxableValue / rate).toFixed(4)) : 0;
+      let quantity = parseFloat(newItems[index].quantity) || 0;
+      if (rate > 0) {
+        quantity = parseFloat((taxableValue / rate).toFixed(4));
+      } else if (quantity > 0) {
+        newItems[index].rate = roundMoney(taxableValue / quantity);
+      }
 
       newItems[index].quantity = quantity;
       newItems[index].taxableValue = taxableValue;
@@ -1913,9 +1936,13 @@ const ManualInvoicePage = () => {
 
     if (field === "taxableValue") {
       taxableValue = Math.max(0, roundMoney(parseFloat(value) || 0));
-      quantity = rate > 0 ? parseFloat((taxableValue / rate).toFixed(4)) : quantity;
+      if (rate > 0) {
+        quantity = parseFloat((taxableValue / rate).toFixed(4));
+      } else if (quantity > 0) {
+        newItems[index].rate = roundMoney(taxableValue / quantity);
+      }
 
-      if (newItems[index].poRemainingQuantity !== undefined) {
+      if (isFromPO && newItems[index].poRemainingQuantity !== undefined) {
         const maxQuantity = Number(newItems[index].poRemainingQuantity || 0);
         if (quantity > maxQuantity) {
           quantity = maxQuantity;
@@ -2015,11 +2042,69 @@ const ManualInvoicePage = () => {
       taxIdentifierNumber: taxIdentifierNumber,
     };
 
-    setInvoice((prev) => ({
-      ...prev,
-      billTo: billToData,
-      shipTo: sameAsBillTo ? billToData : prev.shipTo,
-    }));
+    const updateItemTaxesForClient = (items = [], billState = "", shipState = "") => {
+      const compState = normalizeStateCode(companyDetails.gstNumber?.slice(0, 2) || "");
+      const isIntra = compState && shipState
+        ? compState === shipState
+        : (billState && shipState ? billState === shipState : true);
+
+      return (items || []).map((item) => {
+        if (!item.hsnSac) return item;
+        const selectedHsn = hsnList.find((h) => h.hsnCode === item.hsnSac);
+        if (!selectedHsn) return item;
+
+        let combinedGstRate = 0;
+        let taxBreakdown = [];
+        if (isIntra) {
+          combinedGstRate = (selectedHsn.cgst || 0) + (selectedHsn.sgst || 0);
+          taxBreakdown = [
+            { taxType: "CGST", label: "CGST", rate: selectedHsn.cgst || 0, amount: 0 },
+            { taxType: "SGST", label: "SGST", rate: selectedHsn.sgst || 0, amount: 0 },
+          ];
+        } else {
+          combinedGstRate = selectedHsn.igst || 0;
+          taxBreakdown = [
+            { taxType: "IGST", label: "IGST", rate: selectedHsn.igst || 0, amount: 0 },
+          ];
+        }
+
+        const taxableValue = Number(item.taxableValue || 0);
+        const gstAmount = roundMoney((taxableValue * combinedGstRate) / 100);
+        const total = roundMoney(taxableValue + gstAmount);
+
+        if (taxBreakdown.length === 2) {
+          const halfAmt = roundMoney(gstAmount / 2);
+          taxBreakdown[0].amount = halfAmt;
+          taxBreakdown[1].amount = roundMoney(gstAmount - halfAmt);
+        } else if (taxBreakdown.length === 1) {
+          taxBreakdown[0].amount = gstAmount;
+        }
+
+        return {
+          ...item,
+          gstRate: combinedGstRate,
+          combinedGstRate: combinedGstRate,
+          taxRate: combinedGstRate,
+          gstAmount,
+          taxAmount: gstAmount,
+          total,
+          taxBreakdown,
+        };
+      });
+    };
+
+    setInvoice((prev) => {
+      const nextBillTo = billToData;
+      const nextShipTo = sameAsBillTo ? billToData : prev.shipTo;
+      const bState = normalizeStateCode(nextBillTo.stateCode || "");
+      const sState = normalizeStateCode(nextShipTo.stateCode || bState || "");
+      return {
+        ...prev,
+        billTo: nextBillTo,
+        shipTo: nextShipTo,
+        items: updateItemTaxesForClient(prev.items, bState, sState),
+      };
+    });
 
     setBillToDropdownOpen(false);
     setBillToSearch("");
@@ -2034,20 +2119,76 @@ const ManualInvoicePage = () => {
       client.taxIdentifierType ||
       (client.gstNumber ? "GST" : client.panNumber ? "PAN" : client.einNumber ? "EIN" : client.vatNumber ? "VAT" : client.ssnNumber ? "SSN" : client.nationalIdNumber ? "National ID" : "");
 
-    setInvoice((prev) => ({
-      ...prev,
-      shipTo: {
-        name: client.clientName || "",
-        address: client.clientAddress || "",
-        city: client.clientCity || "",
-        state: client.clientState || "",
-        stateCode: client.stateCode || client.gstStateCode || "",
-        country: client.clientCountry || "",
-        pinCode: client.pinCode || "",
-        taxIdentifierType: taxIdentifierType,
-        taxIdentifierNumber: taxIdentifierNumber,
-      },
-    }));
+    const shipToData = {
+      name: client.clientName || "",
+      address: client.clientAddress || "",
+      city: client.clientCity || "",
+      state: client.clientState || "",
+      stateCode: client.stateCode || client.gstStateCode || "",
+      country: client.clientCountry || "",
+      pinCode: client.pinCode || "",
+      taxIdentifierType: taxIdentifierType,
+      taxIdentifierNumber: taxIdentifierNumber,
+    };
+
+    setInvoice((prev) => {
+      const bState = normalizeStateCode(prev.billTo?.stateCode || "");
+      const sState = normalizeStateCode(shipToData.stateCode || bState || "");
+      const compState = normalizeStateCode(companyDetails.gstNumber?.slice(0, 2) || "");
+      const isIntra = compState && sState
+        ? compState === sState
+        : (bState && sState ? bState === sState : true);
+
+      const updatedItems = (prev.items || []).map((item) => {
+        if (!item.hsnSac) return item;
+        const selectedHsn = hsnList.find((h) => h.hsnCode === item.hsnSac);
+        if (!selectedHsn) return item;
+
+        let combinedGstRate = 0;
+        let taxBreakdown = [];
+        if (isIntra) {
+          combinedGstRate = (selectedHsn.cgst || 0) + (selectedHsn.sgst || 0);
+          taxBreakdown = [
+            { taxType: "CGST", label: "CGST", rate: selectedHsn.cgst || 0, amount: 0 },
+            { taxType: "SGST", label: "SGST", rate: selectedHsn.sgst || 0, amount: 0 },
+          ];
+        } else {
+          combinedGstRate = selectedHsn.igst || 0;
+          taxBreakdown = [
+            { taxType: "IGST", label: "IGST", rate: selectedHsn.igst || 0, amount: 0 },
+          ];
+        }
+
+        const taxableValue = Number(item.taxableValue || 0);
+        const gstAmount = roundMoney((taxableValue * combinedGstRate) / 100);
+        const total = roundMoney(taxableValue + gstAmount);
+
+        if (taxBreakdown.length === 2) {
+          const halfAmt = roundMoney(gstAmount / 2);
+          taxBreakdown[0].amount = halfAmt;
+          taxBreakdown[1].amount = roundMoney(gstAmount - halfAmt);
+        } else if (taxBreakdown.length === 1) {
+          taxBreakdown[0].amount = gstAmount;
+        }
+
+        return {
+          ...item,
+          gstRate: combinedGstRate,
+          combinedGstRate: combinedGstRate,
+          taxRate: combinedGstRate,
+          gstAmount,
+          taxAmount: gstAmount,
+          total,
+          taxBreakdown,
+        };
+      });
+
+      return {
+        ...prev,
+        shipTo: shipToData,
+        items: updatedItems,
+      };
+    });
 
     setShipToDropdownOpen(false);
     setShipToSearch("");
@@ -2962,6 +3103,7 @@ const ManualInvoicePage = () => {
   };
 
   const showTypedTaxFields = poHasTaxData(selectedPOData);
+  const showPOTermColumns = Boolean(isFromPO && invoice.linkedPO);
 
   const handleClearPO = () => {
     setInvoice((prev) => ({
@@ -2973,6 +3115,39 @@ const ManualInvoicePage = () => {
       contractPaymentSchedule: "",
       contractDaysWorked: "",
       contractPeriodWorkingDays: "",
+      items: prev.items.length > 0
+        ? prev.items.map((item) => ({
+            ...item,
+            poItemId: undefined,
+            itemId: undefined,
+            poRemainingQuantity: undefined,
+            maxAllowedTaxableValue: undefined,
+            maxAllowedInvoiceAmount: undefined,
+            previousCarryForward: 0,
+            currentTermAmount: 0,
+            currentTermRemainingAmount: 0,
+            remainingAfterInvoice: 0,
+            baseRemainingAfterInvoice: 0,
+          }))
+        : [
+            {
+              description: "",
+              hsnSac: "",
+              quantity: 1,
+              rate: 0,
+              taxableValue: 0,
+              taxType: "GST",
+              taxLabel: "GST",
+              taxRate: 0,
+              taxAmount: 0,
+              taxBreakdown: [],
+              gstRate: 0,
+              gstAmount: 0,
+              total: 0,
+              combinedGstRate: 0,
+              totalManuallyEdited: false,
+            },
+          ],
     }));
     setPoSearch("");
     setIsFromPO(false);
@@ -2988,14 +3163,8 @@ const ManualInvoicePage = () => {
     setError(null);
     setSuccessMessage(null);
 
-    // Enhanced validation
-    if (!invoice.linkedPO && !editableInvoiceId) {
-      setError("Invoice must be created from a purchase order.");
-      return;
-    }
-
-    if (!invoice.invoiceDate || !invoice.dueDate || !invoice.billTo.name || !invoice.billTo.address || !invoice.shipTo.name || invoice.items.length === 0) {
-      setError("Please fill in all required fields and add at least one item.");
+    if (!invoice.invoiceDate || !invoice.dueDate || !invoice.billTo?.name || !invoice.billTo?.address || !invoice.shipTo?.name || !invoice.items || invoice.items.length === 0) {
+      setError("Please fill in all required fields (Dates, Bill To, Ship To) and add at least one line item.");
       return;
     }
 
@@ -3034,7 +3203,7 @@ const ManualInvoicePage = () => {
         return;
       }
     } else {
-      const invalidItems = invoice.items.filter((item) => !item.description || item.quantity <= 0 || item.rate <= 0);
+      const invalidItems = invoice.items.filter((item) => !item.description?.trim() || Number(item.quantity || 0) <= 0 || Number(item.rate || 0) <= 0);
       if (invalidItems.length > 0) {
         setError("Please ensure all items have a description, quantity > 0, and rate > 0.");
         return;
@@ -3360,7 +3529,7 @@ const ManualInvoicePage = () => {
 
                 {/* Buyer's Order Reference - Now with PO Dropdown */}
                 <div className="relative" ref={poDropdownRef}>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference Purchase Order</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference Purchase Order (Optional)</label>
 
                   <div className="relative">
                     <input
@@ -3377,7 +3546,7 @@ const ManualInvoicePage = () => {
                           setPoSearch(invoice.linkedPORef);
                         }
                       }}
-                      placeholder="Search or select PO..."
+                      placeholder="Search or select PO (optional)..."
                       className="w-full px-3 py-2 border border-gray-300 rounded-md pr-10"
                     />
                     <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -3441,13 +3610,21 @@ const ManualInvoicePage = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Client PO Reference</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Client PO Reference {isFromPO ? "" : "(Optional)"}
+                  </label>
                   <input
                     type="text"
                     name="poreferencevalue"
                     value={invoice.poreferencevalue || ""}
-                    readOnly
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
+                    onChange={handleInputChange}
+                    readOnly={isFromPO}
+                    placeholder={isFromPO ? "" : "Optional PO / ref number..."}
+                    className={`w-full px-3 py-2 border rounded-md ${
+                      isFromPO
+                        ? "border-gray-300 bg-gray-50 text-gray-600"
+                        : "border-gray-300 bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
+                    }`}
                   />
                 </div>
 
@@ -4469,17 +4646,25 @@ const ManualInvoicePage = () => {
                           <tr>
                             <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">S. No.</th>
                             <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest min-w-[280px]">Description</th>
-                            <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">Prev Remaining</th>
-                            <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">Current Term</th>
+                            {showPOTermColumns && (
+                              <>
+                                <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">Prev Remaining</th>
+                                <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">Current Term</th>
+                              </>
+                            )}
                             <th className="px-2 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest min-w-[84px]">HSN/SAC</th>
                             <th className="px-2 py-4 text-right text-[11px] font-black text-slate-500 uppercase tracking-widest min-w-[72px]">Qty</th>
                             <th className="px-2 py-4 text-right text-[11px] font-black text-slate-500 uppercase tracking-widest min-w-[84px]">Rate</th>
                             <th className="px-2 py-4 text-right text-[11px] font-black text-slate-500 uppercase tracking-widest min-w-[108px]">Taxable Value</th>
-                            <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">Term Remaining</th>
+                            {showPOTermColumns && (
+                              <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">Term Remaining</th>
+                            )}
                             <th className="px-2 py-4 text-right text-[11px] font-black text-slate-500 uppercase tracking-widest min-w-[64px]">{primaryTaxLabel} %</th>
                             <th className="px-2 py-4 text-right text-[11px] font-black text-slate-500 uppercase tracking-widest min-w-[96px]">{primaryTaxLabel} Amount</th>
                             <th className="px-2 py-4 text-right text-[11px] font-black text-slate-500 uppercase tracking-widest min-w-[112px]">Total</th>
-                            <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">Remaining After</th>
+                            {showPOTermColumns && (
+                              <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest">Remaining After</th>
+                            )}
                             <th className="px-4 py-4 text-left text-[11px] font-black text-slate-500 uppercase tracking-widest text-center">Action</th>
                           </tr>
                         </thead>
@@ -4494,7 +4679,7 @@ const ManualInvoicePage = () => {
                                   value={item.description}
                                   onChange={(e) => handleItemChange(index, "description", e.target.value)}
                                   list="descriptions"
-                                  className="w-full px-2 py-1 border border-gray-300 rounded"
+                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
                                   placeholder="Item description..."
                                 />
                                 <datalist id="descriptions">
@@ -4503,18 +4688,22 @@ const ManualInvoicePage = () => {
                                   ))}
                                 </datalist>
                               </td>
-                              <td className="px-4 py-3 text-right font-medium text-slate-700 align-top min-w-[120px]">
-                                {(item.previousCarryForward || 0).toFixed(2)}
-                              </td>
-                              <td className="px-4 py-3 text-right font-medium text-slate-700 align-top min-w-[120px]">
-                                {(item.currentTermAmount || 0).toFixed(2)}
-                              </td>
+                              {showPOTermColumns && (
+                                <>
+                                  <td className="px-4 py-3 text-right font-medium text-slate-700 align-top min-w-[120px]">
+                                    {(item.previousCarryForward || 0).toFixed(2)}
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-medium text-slate-700 align-top min-w-[120px]">
+                                    {(item.currentTermAmount || 0).toFixed(2)}
+                                  </td>
+                                </>
+                              )}
                               <td className="px-2 py-3 align-top min-w-[96px]">
                                 <select
                                   value={item.hsnSac}
                                   onChange={(e) => handleItemChange(index, "hsnSac", e.target.value)}
                                   disabled={isFromPO}
-                                  className={`w-[10ch] px-2 py-1 border rounded ${isFromPO ? "border-gray-200 bg-slate-50 text-slate-500 cursor-not-allowed" : "border-gray-300"}`}
+                                  className={`w-[12ch] px-2 py-1.5 border rounded ${isFromPO ? "border-gray-200 bg-slate-50 text-slate-500 cursor-not-allowed" : "border-gray-300 bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"}`}
                                 >
                                   <option value="" disabled>
                                     Select HSN/SAC
@@ -4540,13 +4729,13 @@ const ManualInvoicePage = () => {
                                   type="number"
                                   value={item.quantity}
                                   onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
-                                  className="w-[7ch] px-2 py-2 border border-gray-300 rounded text-right"
+                                  className="w-[8ch] px-2 py-2 border border-gray-300 rounded text-right bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
                                   min="0"
-                                  max={item.poRemainingQuantity || undefined}
-                                  step="0.0001"
+                                  max={isFromPO ? item.poRemainingQuantity || undefined : undefined}
+                                  step="any"
                                   inputMode="decimal"
                                 />
-                                {item.poRemainingQuantity !== undefined && (
+                                {isFromPO && item.poRemainingQuantity !== undefined && (
                                   <div className="mt-1 text-[10px] text-amber-600 text-right">
                                     PO Total: {item.poRemainingQuantity}
                                   </div>
@@ -4557,11 +4746,17 @@ const ManualInvoicePage = () => {
                                 <input
                                   type="number"
                                   value={item.rate}
-                                  readOnly
-                                  className="w-[9ch] px-2 py-2 border border-gray-200 rounded text-right bg-slate-50 text-slate-500"
+                                  readOnly={isFromPO}
+                                  onChange={(e) => handleItemChange(index, "rate", e.target.value)}
+                                  className={`w-[11ch] px-2 py-2 border rounded text-right font-medium ${
+                                    isFromPO
+                                      ? "border-gray-200 bg-slate-50 text-slate-500 cursor-not-allowed"
+                                      : "border-gray-300 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                  }`}
                                   min="0"
-                                  step="1"
+                                  step="any"
                                   inputMode="decimal"
+                                  placeholder="0.00"
                                 />
                               </td>
 
@@ -4570,15 +4765,17 @@ const ManualInvoicePage = () => {
                                   type="number"
                                   value={item.taxableValue}
                                   onChange={(e) => handleItemChange(index, "taxableValue", e.target.value)}
-                                  className="w-[12ch] px-2 py-2 border border-gray-300 rounded text-right"
+                                  className="w-[12ch] px-2 py-2 border border-gray-300 rounded text-right bg-white text-gray-900 focus:ring-2 focus:ring-blue-500"
                                   min="0"
                                   step="0.01"
                                   inputMode="decimal"
                                 />
                               </td>
-                              <td className="px-4 py-3 text-right font-medium text-amber-600 align-top min-w-[130px]">
-                                {(item.currentTermRemainingAmount || 0).toFixed(2)}
-                              </td>
+                              {showPOTermColumns && (
+                                <td className="px-4 py-3 text-right font-medium text-amber-600 align-top min-w-[130px]">
+                                  {(item.currentTermRemainingAmount || 0).toFixed(2)}
+                                </td>
+                              )}
                               <td className="px-2 py-3 text-right font-medium align-top">
                                 <input
                                   type="number"
@@ -4597,18 +4794,20 @@ const ManualInvoicePage = () => {
                                   value={item.total}
                                   readOnly={isFromPO}
                                   onChange={(e) => handleItemChange(index, "total", e.target.value)}
-                                  className={`w-[13ch] px-2 py-2 border rounded text-right font-semibold ${isFromPO ? "border-gray-200 bg-slate-50 text-slate-500" : "border-gray-300 text-gray-900"}`}
+                                  className={`w-[13ch] px-2 py-2 border rounded text-right font-semibold ${isFromPO ? "border-gray-200 bg-slate-50 text-slate-500 cursor-not-allowed" : "border-gray-300 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"}`}
                                   min="0"
-                                  max={item.maxAllowedInvoiceAmount || undefined}
+                                  max={isFromPO ? item.maxAllowedInvoiceAmount || undefined : undefined}
                                   step="0.01"
                                 />
                                 <div className="mt-1 text-[10px] text-gray-500 text-right">
                                   {isFromPO ? "Auto total" : item.totalManuallyEdited ? "Manual total" : "Auto total"}
                                 </div>
                               </td>
-                              <td className="px-4 py-3 text-right font-medium text-amber-700 align-top min-w-[130px]">
-                                {(item.remainingAfterInvoice || 0).toFixed(2)}
-                              </td>
+                              {showPOTermColumns && (
+                                <td className="px-4 py-3 text-right font-medium text-amber-700 align-top min-w-[130px]">
+                                  {(item.remainingAfterInvoice || 0).toFixed(2)}
+                                </td>
+                              )}
                               <td className="px-4 py-3 align-top">
                                 <button
                                   type="button"
