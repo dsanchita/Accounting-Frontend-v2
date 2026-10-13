@@ -4,7 +4,7 @@ import { Calendar, Package, CreditCard, FileText, User, Banknote, Percent, Chevr
 import dayjs from "dayjs";
 import InvoiceDetailModal from "../modals/InvoiceDetailsModal";
 import { useNavigate } from "react-router-dom";
-import { deleteInvoiceApi, pendingApprovalInvoiceApi } from "../apis/invoice.api";
+import { deleteInvoiceApi, pendingApprovalInvoiceApi, getInvoicesApi } from "../apis/invoice.api";
 
 // Premium SideDialogBox (matching admin approval style)
 const SideDialogBox = ({ open, onClose, title, subtitle, contents }) => {
@@ -68,6 +68,7 @@ const EmptyComponent = ({ title, subtitle }) => (
 
 export default function UserPendingInvoices({ open, onClose, user }) {
   const [pendingItems, setPendingItems] = useState([]);
+  const [activeFilter, setActiveFilter] = useState("all"); // 'all' | 'pending' | 'rejected'
   const [loading, setLoading] = useState(true);
   const [expandedRows, setExpandedRows] = useState({});
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -82,7 +83,12 @@ export default function UserPendingInvoices({ open, onClose, user }) {
         if (!open || !user?.company?._id) return;
         setLoading(true);
 
-        const res = await pendingApprovalInvoiceApi(user.company._id, controller.signal);
+        // Fetch both Pending and Rejected invoices so user can track and edit them
+        const res = await getInvoicesApi(user.company._id, {
+          approvalStatus: "Pending,Rejected",
+          limit: 100,
+          sort: "-createdAt",
+        });
 
         if (res.data) {
           const mapped = (res.data.data || [])
@@ -248,19 +254,64 @@ export default function UserPendingInvoices({ open, onClose, user }) {
   };
 
   const renderContent = () => {
-    if (loading) return <LoadingComponent title="Loading pending invoices..." />;
-    if (!pendingItems.length) return (
-      <EmptyComponent
-        title="No pending invoices"
-        subtitle="Invoices waiting for approval will appear here"
-      />
-    );
+    if (loading) return <LoadingComponent title="Loading invoices..." />;
+    
+    const pendingCount = pendingItems.filter(i => (i.snapshot?.approvalStatus || "Pending") === "Pending").length;
+    const rejectedCount = pendingItems.filter(i => i.snapshot?.approvalStatus === "Rejected").length;
+
+    const displayedItems = pendingItems.filter(item => {
+      const status = item.snapshot?.approvalStatus || "Pending";
+      if (activeFilter === "pending") return status === "Pending";
+      if (activeFilter === "rejected") return status === "Rejected";
+      return true;
+    });
 
     return (
-      <div className="space-y-3">
-        {pendingItems.map((item) => {
-          const invoice = item.snapshot;
-          const isExpanded = expandedRows[item.id];
+      <div className="space-y-4">
+        {/* Filter Tabs */}
+        <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+          <button
+            onClick={() => setActiveFilter("all")}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+              activeFilter === "all"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            All ({pendingItems.length})
+          </button>
+          <button
+            onClick={() => setActiveFilter("pending")}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+              activeFilter === "pending"
+                ? "bg-amber-600 text-white shadow-sm"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            Pending ({pendingCount})
+          </button>
+          <button
+            onClick={() => setActiveFilter("rejected")}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+              activeFilter === "rejected"
+                ? "bg-red-600 text-white shadow-sm"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            Rejected ({rejectedCount})
+          </button>
+        </div>
+
+        {!displayedItems.length ? (
+          <EmptyComponent
+            title={activeFilter === "rejected" ? "No rejected invoices" : "No invoices found"}
+            subtitle={activeFilter === "rejected" ? "Rejected invoices will appear here with reviewer comments" : "Invoices waiting for action will appear here"}
+          />
+        ) : (
+          <div className="space-y-3">
+            {displayedItems.map((item) => {
+              const invoice = item.snapshot;
+              const isExpanded = expandedRows[item.id];
 
           return (
             <div
@@ -283,9 +334,13 @@ export default function UserPendingInvoices({ open, onClose, user }) {
                         <h3 className="text-sm font-black text-slate-900 tracking-tight">{invoice.invoiceNo}</h3>
                         {getActionBadge(item.actionType)}
                         <span
-                          className={`px-2 py-0.5 text-[10px] font-black rounded-full border uppercase tracking-wider ${getStatusColor(invoice.status)}`}
+                          className={`px-2 py-0.5 text-[10px] font-black rounded-full border uppercase tracking-wider ${
+                            invoice.approvalStatus === "Rejected"
+                              ? "border-red-300 text-red-700 bg-red-100"
+                              : getStatusColor(invoice.status)
+                          }`}
                         >
-                          {invoice.status}
+                          {invoice.approvalStatus === "Rejected" ? "Rejected" : invoice.status}
                         </span>
                         {invoice.tdsAmount > 0 && (
                           <span className="px-2 py-0.5 text-[10px] font-black rounded-full border border-violet-200 text-violet-700 bg-violet-50 uppercase tracking-wider">
@@ -339,6 +394,24 @@ export default function UserPendingInvoices({ open, onClose, user }) {
               {/* Expanded Details */}
               {isExpanded && (
                 <div className="p-4 border-t">
+                  {invoice.approvalStatus === "Rejected" && (
+                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                      <div className="p-1.5 bg-red-100 rounded-lg text-red-600 shrink-0">
+                        <X size={15} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-red-900">Invoice Rejected by Reviewer</h4>
+                        <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
+                          <span className="font-semibold">Reason:</span>{" "}
+                          {invoice.rejectionReason ||
+                            invoice.approvalComments ||
+                            invoice.rejectionHistory?.[invoice.rejectionHistory.length - 1]?.reason ||
+                            "No reason specified"}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                     {/* Client Details */}
                     <div className="space-y-2">
@@ -520,16 +593,18 @@ export default function UserPendingInvoices({ open, onClose, user }) {
           );
         })}
       </div>
-    );
-  };
+    )}
+  </div>
+);
+};
 
   return (
     <>
       <SideDialogBox
         open={open}
         onClose={onClose}
-        title="Pending Invoices"
-        subtitle="Invoices waiting for admin approval"
+        title="Pending & Rejected Invoices"
+        subtitle="Manage pending approval requests and review rejected invoices"
         contents={renderContent()}
       />
       <InvoiceDetailModal

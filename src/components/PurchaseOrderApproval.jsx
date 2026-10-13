@@ -78,6 +78,8 @@ const EmptyComponent = ({ title, subtitle }) => (
   </div>
 );
 
+import RejectionReasonModal from "../modals/RejectionReasonModal";
+
 export default function PurchaseOrderApproval({
   open,
   onClose,
@@ -86,6 +88,9 @@ export default function PurchaseOrderApproval({
   const [pendingItems, setPendingItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedRows, setExpandedRows] = useState({});
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [selectedRejectItem, setSelectedRejectItem] = useState(null);
+  const [rejecting, setRejecting] = useState(false);
 
   const companyId = user?.company?._id || JSON.parse(localStorage.getItem("selectedCompany") || "{}")?._id;
 
@@ -137,18 +142,32 @@ export default function PurchaseOrderApproval({
     }));
   };
 
+  const handleOpenReject = (item) => {
+    setSelectedRejectItem(item);
+    setRejectModalOpen(true);
+  };
+
+  const handleConfirmReject = async (reason) => {
+    if (!selectedRejectItem) return;
+    try {
+      setRejecting(true);
+      await updatePurchaseOrderApprovalApi(selectedRejectItem.id, "Rejected", reason);
+      toast.success("Purchase Order rejected successfully");
+      setPendingItems((prev) => prev.filter((item) => item.id !== selectedRejectItem.id));
+      setRejectModalOpen(false);
+      setSelectedRejectItem(null);
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || "Rejection action failed");
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   const handleSubmit = async (id, approvalStatus) => {
     try {
-      let approvalComments = "";
-      if (approvalStatus === "Rejected") {
-        approvalComments = window.prompt("Enter rejection reason");
-        if (!approvalComments?.trim()) {
-          toast.error("Rejection reason is required");
-          return;
-        }
-      }
       setLoading(true);
-      await updatePurchaseOrderApprovalApi(id, approvalStatus, approvalComments.trim());
+      await updatePurchaseOrderApprovalApi(id, approvalStatus, "");
       toast.success(`Purchase Order ${approvalStatus.toLowerCase()} successfully`);
       
       // Remove the approved/rejected PO from the list
@@ -478,7 +497,7 @@ export default function PurchaseOrderApproval({
                   {/* Approval Action Buttons */}
                   <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                     <button
-                      onClick={() => handleSubmit(item.id, "Rejected")}
+                      onClick={() => handleOpenReject(item)}
                       className="px-5 py-2.5 text-xs font-bold text-red-600 bg-red-50 border border-red-100 rounded-full hover:bg-red-100 transition-all flex items-center gap-1.5 hover:scale-105 active:scale-95 duration-200 cursor-pointer"
                     >
                       <X size={14} />
@@ -502,12 +521,31 @@ export default function PurchaseOrderApproval({
   };
 
   return (
-    <SideDialogBox
-      open={open}
-      onClose={onClose}
-      title="Purchase Order Approval"
-      subtitle="Review and approve pending purchase order creation, update, and deletion requests"
-      contents={renderContent()}
-    />
+    <>
+      <SideDialogBox
+        open={open}
+        onClose={onClose}
+        title="Purchase Order Approval"
+        subtitle="Review and approve pending purchase order creation, update, and deletion requests"
+        contents={renderContent()}
+      />
+      <RejectionReasonModal
+        open={rejectModalOpen}
+        onClose={() => {
+          if (!rejecting) {
+            setRejectModalOpen(false);
+            setSelectedRejectItem(null);
+          }
+        }}
+        onSubmit={handleConfirmReject}
+        loading={rejecting}
+        title="Reject Purchase Order"
+        subtitle={
+          selectedRejectItem?.poData?.poNumber
+            ? `Please provide a reason for rejecting purchase order ${selectedRejectItem.poData.poNumber}.`
+            : "Please provide a reason for rejecting this purchase order."
+        }
+      />
+    </>
   );
 }
