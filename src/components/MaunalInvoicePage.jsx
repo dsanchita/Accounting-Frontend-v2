@@ -1071,6 +1071,7 @@ const ManualInvoicePage = () => {
   const [createdInvoice, setCreatedInvoice] = useState(null);
   const [isEditPendingMode, setIsEditPendingMode] = useState(false);
   const [pendingVersionNo, setPendingVersionNo] = useState(null);
+  const [loadedRejectionReason, setLoadedRejectionReason] = useState("");
   const [autoSelectedPoId, setAutoSelectedPoId] = useState(null);
   // Track selected PO type metadata for rendering the correct input section
   const [selectedPOInfo, setSelectedPOInfo] = useState(null); // { poCategory, billingModel, poNumber }
@@ -1400,14 +1401,15 @@ const ManualInvoicePage = () => {
 
         let dataToLoad = invoiceData;
         if (editPendingId) {
-          // For pending edit, use the snapshot from pendingVersion
-          if (!invoiceData.pendingVersion) {
-            toast.error("No pending version found for this invoice");
-            navigate("/invoice-data");
-            return;
-          }
-          dataToLoad = invoiceData.pendingVersion.snapshot;
+          // For pending edit, use snapshot if available, otherwise fallback to the invoiceData itself
+          dataToLoad = invoiceData.pendingVersion?.snapshot || invoiceData;
         }
+        setLoadedRejectionReason(
+          invoiceData.rejectionReason ||
+          invoiceData.approvalComments ||
+          invoiceData.rejectionHistory?.[invoiceData.rejectionHistory.length - 1]?.reason ||
+          ""
+        );
         applyInvoiceDataToForm(
           dataToLoad,
           invoiceId,
@@ -3472,8 +3474,24 @@ const ManualInvoicePage = () => {
           </div>
         </div>
 
+        {loadedRejectionReason && (
+          <div className="mb-8 p-5 bg-red-50 border border-red-200 rounded-2xl flex items-start gap-3.5 shadow-sm">
+            <div className="p-2 bg-red-100 rounded-xl text-red-600 shrink-0">
+              <X size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-red-900">This invoice was rejected by reviewer</h3>
+              <p className="text-xs text-red-700 mt-1 leading-relaxed">
+                <span className="font-semibold">Reason:</span> {loadedRejectionReason}
+              </p>
+              <p className="text-[11px] text-red-600 font-medium mt-1">
+                You can make the required changes below and re-submit the invoice for approval.
+              </p>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Company Details */}
           {/* Company Details */}
           <div className="glass-card rounded-[2.5rem] shadow-premium mb-8 border border-white/20 overflow-hidden">
             <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white p-6 flex items-center">

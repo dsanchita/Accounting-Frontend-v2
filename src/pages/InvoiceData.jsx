@@ -152,7 +152,7 @@ const InvoiceData = () => {
       try { const response = await getInvoicesApi(user.company._id, {
           page: 1,
           limit: 10000,
-          approvalStatus: "Approved",
+          approvalStatus: "Approved,Rejected",
           sort: "-createdAt",
         });
 
@@ -176,7 +176,7 @@ const InvoiceData = () => {
       const response = await getInvoicesApi(user.company._id, {
         page: 1,
         limit: 1,                // ✅ only one invoice
-        approvalStatus: "Approved",
+        approvalStatus: "Approved,Rejected",
         sort: "-createdAt",      // ✅ newest first
         ...advancedFilters,
       });
@@ -191,7 +191,7 @@ const InvoiceData = () => {
       const allFiltered = await getInvoicesApi(user.company._id, {
         page: 1,
         limit: 10000,
-        approvalStatus: "Approved",
+        approvalStatus: "Approved,Rejected",
         sort: "-createdAt",
         ...advancedFilters,
       });
@@ -200,7 +200,7 @@ const InvoiceData = () => {
       const allInvoicesRes = await getInvoicesApi(user.company._id, {
         page: 1,
         limit: 10000,
-        approvalStatus: "Approved",
+        approvalStatus: "Approved,Rejected",
         sort: "-createdAt",
       });
       setAllInvoices(allInvoicesRes?.data || []);
@@ -1183,6 +1183,12 @@ const InvoiceData = () => {
                                 {lifecycleBadge.text}
                               </span>
                             )}
+                            {invoice.approvalStatus === "Rejected" && (
+                              <span className="px-2 py-0.5 text-[10px] font-black rounded-full border border-red-300 text-red-700 bg-red-100 uppercase tracking-wider flex items-center gap-1">
+                                <AlertTriangle size={9} className="text-red-600" />
+                                Rejected
+                              </span>
+                            )}
                             {journalPosted && (
                               <span className="px-2 py-0.5 text-[10px] font-black rounded-full border border-emerald-200 text-emerald-700 bg-emerald-50 uppercase tracking-wider">
                                 ✓ Journal
@@ -1307,6 +1313,35 @@ const InvoiceData = () => {
                           transition={{ duration: 0.2 }}
                           className="border-t border-slate-100 bg-slate-50/40 px-5 py-5 space-y-4"
                         >
+                          {invoice.approvalStatus === "Rejected" && (
+                            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start justify-between gap-3 shadow-sm">
+                              <div className="flex items-start gap-3">
+                                <div className="p-2 bg-red-100 rounded-xl text-red-600 shrink-0">
+                                  <AlertTriangle size={16} />
+                                </div>
+                                <div>
+                                  <h4 className="text-xs font-bold text-red-900">Invoice Rejected</h4>
+                                  <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
+                                    <span className="font-semibold">Reason:</span>{" "}
+                                    {invoice.rejectionReason ||
+                                      invoice.approvalComments ||
+                                      invoice.rejectionHistory?.[invoice.rejectionHistory.length - 1]?.reason ||
+                                      "No reason specified"}
+                                  </p>
+                                </div>
+                              </div>
+                              {canEditInvoice && (
+                                <Link
+                                  to={`/master-data/manual-invoice?edit=${invoice._id}`}
+                                  onClick={(e) => handleEditClick(invoice._id, e)}
+                                  className="px-3.5 py-1.5 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all flex items-center gap-1.5 shadow-sm shrink-0"
+                                >
+                                  <Edit size={12} /> Edit &amp; Resubmit
+                                </Link>
+                              )}
+                            </div>
+                          )}
+
                           {/* Row 1: Invoice details + Amount summary */}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {/* Invoice Details */}

@@ -654,6 +654,11 @@ const ViewAllInvoices = () => {
                                     {lifecycleBadge.text}
                                   </span>
                                 )}
+                                {invoice.approvalStatus === "Rejected" && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black border bg-red-100 text-red-700 border-red-300">
+                                    <AlertTriangle size={9} /> Rejected
+                                  </span>
+                                )}
                                 {journalPosted && (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black border bg-emerald-100 text-emerald-700 border-emerald-200">
                                     <CheckCircle size={9} /> Journal Posted
@@ -732,6 +737,34 @@ const ViewAllInvoices = () => {
                             onClick={(e) => e.stopPropagation()}
                           >
                             <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-5 space-y-4">
+                              {invoice.approvalStatus === "Rejected" && (
+                                <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-start justify-between gap-3 shadow-sm">
+                                  <div className="flex items-start gap-3">
+                                    <div className="p-2 bg-red-100 rounded-xl text-red-600 shrink-0">
+                                      <AlertTriangle size={16} />
+                                    </div>
+                                    <div>
+                                      <h4 className="text-xs font-bold text-red-900">Invoice Rejected</h4>
+                                      <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
+                                        <span className="font-semibold">Reason:</span>{" "}
+                                        {invoice.rejectionReason ||
+                                          invoice.approvalComments ||
+                                          invoice.rejectionHistory?.[invoice.rejectionHistory.length - 1]?.reason ||
+                                          "No reason specified"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {checkAuthorization(user, "INVOICE", "EDIT") && (
+                                    <ActionBtn
+                                      to={`/master-data/manual-invoice?edit=${invoice._id}`}
+                                      onClick={(e) => handleEditClick(invoice._id, e)}
+                                      icon={Edit}
+                                      label="Edit & Resubmit"
+                                      color="red"
+                                    />
+                                  )}
+                                </div>
+                              )}
 
                               {/* Invoice details + amount summary */}
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

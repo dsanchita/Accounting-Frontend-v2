@@ -34,6 +34,7 @@ import {
   Shield,
   Package,
   RotateCcw,
+  Edit,
 } from "lucide-react";
 import dayjs from "dayjs";
 import { useAuth } from "../contexts/AuthContext";
@@ -650,9 +651,26 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoiceId, defaultTab = "overview
             </div>
 
             {isRejectedInvoice && (
-              <div className="px-6 py-3 bg-red-50 border-b border-red-100 text-red-700 text-xs">
-                <span className="font-black">Rejected</span>
-                {rejectionReason ? <span className="ml-2">Reason: {rejectionReason}</span> : null}
+              <div className="px-6 py-3.5 bg-red-50 border-b border-red-200 text-red-700 text-xs flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-black px-2 py-0.5 bg-red-100 border border-red-200 rounded-md text-[10px] uppercase tracking-wider">
+                    Rejected
+                  </span>
+                  {rejectionReason ? (
+                    <span className="font-medium text-slate-700">
+                      Reason: <span className="font-bold text-red-700">{rejectionReason}</span>
+                    </span>
+                  ) : null}
+                </div>
+                <button
+                  onClick={() => {
+                    onClose();
+                    navigate(`/master-data/manual-invoice?edit=${invoice._id}`);
+                  }}
+                  className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm shrink-0"
+                >
+                  <Edit size={12} /> Edit &amp; Resubmit
+                </button>
               </div>
             )}
 

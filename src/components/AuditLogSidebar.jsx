@@ -122,6 +122,7 @@ const AuditLogSidebar = ({
       const params = {
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
+        limit: 100,
         ...(isHomePage && module ? { module } : {}), // Only add module param for home page with filter
       };
 
@@ -149,9 +150,26 @@ const AuditLogSidebar = ({
   // Filter logs based on modules prop or module filter
   const filteredLogs =
     !isHomePage && Array.isArray(modules) && modules.length > 0
-      ? logs.filter((log) => modules.includes(log.module || ""))
+      ? logs.filter((log) => {
+          const logMod = (log.module || "").toUpperCase();
+          const logEntity = (log.entityType || "").toUpperCase();
+          return modules.some((m) => {
+            const target = (m || "").toUpperCase();
+            return (
+              logMod === target ||
+              logEntity === target ||
+              (target === "INVOICE" && (logEntity === "INVOICE" || logMod.includes("INVOICE"))) ||
+              (target === "PURCHASE_ORDER" && (logEntity === "PURCHASEORDER" || logMod.includes("PURCHASE")))
+            );
+          });
+        })
       : isHomePage && module
-        ? logs.filter((log) => (log.module || "") === module)
+        ? logs.filter((log) => {
+            const logMod = (log.module || "").toUpperCase();
+            const logEntity = (log.entityType || "").toUpperCase();
+            const target = module.toUpperCase();
+            return logMod === target || logEntity === target;
+          })
         : logs;
 
   // Helper function to format currency
