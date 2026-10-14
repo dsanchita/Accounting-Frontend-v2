@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import * as XLSX from "xlsx";
 import { toast } from "react-toastify";
@@ -11,6 +11,7 @@ import {
   Filter,
   IndianRupee,
   RefreshCw,
+  RotateCcw,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -547,19 +548,19 @@ export default function TaxFlowReportPage() {
     return params;
   }, [filters, selectedClient, user?.company?._id]);
 
-  const loadReport = async () => {
-    if (!queryParams.companyId) return;
+  const loadReport = useCallback(async (customParams = queryParams) => {
+    if (!customParams?.companyId) return;
     setLoading(true);
     try {
       const [poResponse, clientResponse, summaryResponse, businessResponse] = await Promise.all([
-        getPOTaxReportApi(queryParams),
-        getClientTaxReportApi(queryParams),
-        getTaxSummaryApi(queryParams),
-        getBusinessInsightsReportApi(queryParams.companyId, {
-          financialYear: queryParams.financialYear,
-          fromDate: queryParams.fromDate,
-          toDate: queryParams.toDate,
-          month: queryParams.month,
+        getPOTaxReportApi(customParams),
+        getClientTaxReportApi(customParams),
+        getTaxSummaryApi(customParams),
+        getBusinessInsightsReportApi(customParams.companyId, {
+          financialYear: customParams.financialYear,
+          fromDate: customParams.fromDate,
+          toDate: customParams.toDate,
+          month: customParams.month,
         }),
       ]);
       setPoReport(poResponse?.data || { items: [], summary: {} });
@@ -579,36 +580,66 @@ export default function TaxFlowReportPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [queryParams]);
 
-  useEffect(() => {
-    let active = true;
-
-    const loadFilterOptions = async () => {
-      try {
-        // Fetch all clients (global master data) - no companyId filter
-        const [clientResponse, poResponse] = await Promise.all([
-          getClientsApi(),
-          getAllPurchaseOrdersApi(user.company._id),
-        ]);
-        if (!active) return;
-        setClients(Array.isArray(clientResponse?.data) ? clientResponse.data : []);
-        setPurchaseOrders(Array.isArray(poResponse?.data) ? poResponse.data : []);
-      } catch (error) {
-        console.error("Failed to load tax report filters", error);
-        toast.error("Failed to load tax report filters");
-      }
-    };
-
-    loadFilterOptions();
-    return () => {
-      active = false;
-    };
+  const loadFilterOptions = useCallback(async () => {
+    const companyId = user?.company?._id;
+    if (!companyId) return;
+    try {
+      // Fetch all clients (global master data) - no companyId filter
+      const [clientResponse, poResponse] = await Promise.all([
+        getClientsApi(),
+        getAllPurchaseOrdersApi(companyId),
+      ]);
+      setClients(Array.isArray(clientResponse?.data) ? clientResponse.data : []);
+      setPurchaseOrders(Array.isArray(poResponse?.data) ? poResponse.data : []);
+    } catch (error) {
+      console.error("Failed to load tax report filters", error);
+      toast.error("Failed to load tax report filters");
+    }
   }, [user?.company?._id]);
 
   useEffect(() => {
+    loadFilterOptions();
+  }, [loadFilterOptions]);
+
+  useEffect(() => {
     loadReport();
-  }, [queryParams]);
+  }, [loadReport]);
+
+  const handleRefresh = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([loadReport(queryParams), loadFilterOptions()]);
+      toast.success("Tax flow report refreshed successfully");
+    } catch (error) {
+      console.error("Failed to refresh tax flow report", error);
+      toast.error(error?.response?.data?.message || "Failed to refresh tax flow report");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const hasActiveFilters = Boolean(
+    filters.month ||
+    filters.fromDate ||
+    filters.toDate ||
+    filters.clientId ||
+    filters.poId ||
+    filters.financialYear !== selectedFinancialYear
+  );
+
+  const handleResetFilters = () => {
+    setFilters({
+      financialYear: selectedFinancialYear,
+      fromDate: "",
+      toDate: "",
+      month: "",
+      clientId: "",
+      poId: "",
+    });
+    toast.info("Filters reset to default");
+  };
 
   const handleFilterChange = (key, value) => {
     if (key === "financialYear") {
@@ -736,10 +767,12 @@ export default function TaxFlowReportPage() {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={loadReport}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#e4d8c7] bg-white px-4 text-sm font-medium text-slate-700 hover:bg-[#faf7f2]"
+              onClick={handleRefresh}
+              disabled={loading}
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#e4d8c7] bg-white px-4 text-sm font-medium text-slate-700 hover:bg-[#faf7f2] disabled:opacity-50 transition"
+              title="Refresh report data"
             >
-              <RefreshCw size={15} />
+              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
               Refresh
             </button>
             <button
@@ -756,9 +789,21 @@ export default function TaxFlowReportPage() {
 
       <div className="mx-auto max-w-[1180px] px-6 py-5">
         <div className="rounded-2xl border border-[#e7dccd] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="mb-4 flex items-center gap-2 text-[14px] font-semibold text-slate-700">
-            <Filter size={14} className="text-slate-400" />
-            Filters
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[14px] font-semibold text-slate-700">
+              <Filter size={14} className="text-slate-400" />
+              Filters
+            </div>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700 transition"
+              >
+                <RotateCcw size={12} />
+                Reset Filters
+              </button>
+            )}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -1145,6 +1190,12 @@ export default function TaxFlowReportPage() {
         )}
 
         {activeTab === "insights" && (
+          loading ? (
+            <div className="mt-4 rounded-2xl border border-[#e7dccd] bg-white p-14 text-center text-sm text-slate-500">
+              <RefreshCw size={24} className="mx-auto mb-3 animate-spin text-slate-400" />
+              Loading business insights...
+            </div>
+          ) : (
           <div className="mt-4 space-y-4">
             <div className="grid gap-4 lg:grid-cols-4">
               <FooterStat title="Total Income" value={amount(businessInsights.summary?.totalIncome)} note="Credit entries of income ledgers" tone="green" />
@@ -1211,6 +1262,7 @@ export default function TaxFlowReportPage() {
               </div>
             </div>
           </div>
+          )
         )}
 
         <div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
