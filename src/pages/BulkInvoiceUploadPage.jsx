@@ -22,7 +22,7 @@ import { ArrowLeft } from "lucide-react";
 import { bulkCreateInvoicesApi } from "../apis/invoice.api";
 import { getClientsApi } from "../apis/clientApi";
 import { getallhsn } from "../apis/hsnapi";
-import { API } from "../apis/api";
+import { getAllPurchaseOrdersApi } from "../apis/purchaseOrderApi";
 
 const getRemainingPOItemQuantity = (item = {}) => {
   if (item.remainingQuantity !== undefined && item.remainingQuantity !== null) {
@@ -90,9 +90,9 @@ export default function BulkInvoiceUploadPage() {
         const clientLookup = {};
         clientsData.forEach((client) => {
           const name = client.clientName || client.name || "";
-          if (name) clientLookup[name.toLowerCase()] = client;
+          if (name) clientLookup[name.toString().trim().toLowerCase()] = client;
           if (client.clientCode) {
-            clientLookup[client.clientCode.toLowerCase()] = client;
+            clientLookup[client.clientCode.toString().trim().toLowerCase()] = client;
           }
         });
         setClientMap(clientLookup);
@@ -106,7 +106,7 @@ export default function BulkInvoiceUploadPage() {
         const hsnLookup = {};
         hsnData.forEach((hsn) => {
           if (hsn.hsnCode) {
-            hsnLookup[hsn.hsnCode.toString()] = hsn;
+            hsnLookup[hsn.hsnCode.toString().trim().toUpperCase()] = hsn;
           }
         });
         setHsnMap(hsnLookup);
@@ -132,12 +132,8 @@ export default function BulkInvoiceUploadPage() {
     try {
       console.log("Fetching POs for company:", companyId);
 
-      // Pass companyId as query param (works with updated backend)
-      const response = await API.get("/purchase-orders/all", {
-        params: { companyId },
-      });
-
-      const poList = response.data?.data || [];
+      const response = await getAllPurchaseOrdersApi(companyId, { limit: 10000 });
+      const poList = response.data || [];
       
       if (poList.length === 0) {
         console.warn("No POs returned from API");
@@ -240,7 +236,7 @@ export default function BulkInvoiceUploadPage() {
           "Client Name*": "",
           "Item Description*": "",
           "Item HSN/SAC*": "",
-          "Item Quantity": "",
+          "Item Quantity*": "",
           "Item Rate*": "",
           "Manual TDS Amount": "",
           "Digital Signature": "",
@@ -260,7 +256,7 @@ export default function BulkInvoiceUploadPage() {
         { wch: 25 }, // Client Name*
         { wch: 30 }, // Item Description*
         { wch: 15 }, // Item HSN/SAC*
-        { wch: 10 }, // Item Quantity
+        { wch: 10 }, // Item Quantity*
         { wch: 15 }, // Item Rate*
         { wch: 12 }, // Manual TDS Amount
         { wch: 20 }, // Digital Signature
@@ -320,11 +316,8 @@ export default function BulkInvoiceUploadPage() {
 
   // Auto-fetch client by code or name
   const findClient = (clientCode, clientName) => {
-
     if (clientCode && clientCode.toString().trim()) {
       const code = clientCode.toString().trim().toLowerCase();
-      
-
       if (clientMap[code]) {
         return clientMap[code];
       }
@@ -336,16 +329,8 @@ export default function BulkInvoiceUploadPage() {
       if (clientMap[name]) {
         return clientMap[name];
       }
-
-      const foundClient = clients.find(
-        (c) =>
-          c.clientName?.toLowerCase().includes(name) ||
-          c.name?.toLowerCase().includes(name),
-      );
-      return foundClient;
     }
 
-    console.log("No client found");
     return null;
   };
 
@@ -482,8 +467,11 @@ export default function BulkInvoiceUploadPage() {
   const getHsnData = (hsnCode) => {
     if (!hsnCode) return null;
 
-    const code = hsnCode.toString().trim();
-    return hsnMap[code] || hsnList.find((h) => h.hsnCode?.toString() === code);
+    const code = hsnCode.toString().trim().toUpperCase();
+    return (
+      hsnMap[code] ||
+      hsnList.find((h) => h.hsnCode?.toString().trim().toUpperCase() === code)
+    );
   };
 
   // Calculate GST split based on state codes
@@ -623,14 +611,6 @@ export default function BulkInvoiceUploadPage() {
         row._poData = JSON.parse(JSON.stringify(poData)); // Deep clone
         row._poFound = true;
 
-        // If PO is found, we can skip most validations
-        if (
-          !row["Invoice Group ID*"] ||
-          row["Invoice Group ID*"].toString().trim() === ""
-        ) {
-          errors.push(`Row ${rowNum}: Invoice Group ID is required`);
-          hasValidationError = true;
-        }
       } else {
         // PO not found - mark as error but still include in preview
         row._poFound = false;
@@ -641,9 +621,10 @@ export default function BulkInvoiceUploadPage() {
       }
     }
 
-    // Only perform full validation if no PO was found
-    if (!poData) {
-      console.log(`Row ${rowNum}: No valid PO, performing full validation`);
+    {
+      if (!poData) {
+        console.log(`Row ${rowNum}: No valid PO, performing full validation`);
+      }
 
       // Required fields validation
       if (
@@ -656,12 +637,12 @@ export default function BulkInvoiceUploadPage() {
 
       // Invoice Date validation
       if (
-        !row["Invoice Date*"] ||
-        row["Invoice Date*"].toString().trim() === ""
+        !poData &&
+        (!row["Invoice Date*"] || !row["Invoice Date*"].toString().trim())
       ) {
         errors.push(`Row ${rowNum}: Invoice Date is required`);
         hasValidationError = true;
-      } else {
+      } else if (row["Invoice Date*"]) {
         const parsedDate = parseDate(row["Invoice Date*"]);
         if (!parsedDate) {
           errors.push(
@@ -677,7 +658,7 @@ export default function BulkInvoiceUploadPage() {
       const hasClientCode =
         row["Client Code"] && row["Client Code"].toString().trim() !== "";
 
-      if (!hasClientName && !hasClientCode) {
+      if (!poData && !hasClientName && !hasClientCode) {
         errors.push(
           `Row ${rowNum}: Either Client Name or Client Code is required`,
         );
@@ -705,10 +686,23 @@ export default function BulkInvoiceUploadPage() {
             const hsn = getHsnData(hsnCode);
             if (!hsn) {
               errors.push(
-                `Row ${rowNum}, Item ${i}: HSN code "${hsnCode}" not found in system`,
+                `Row ${rowNum}, Item ${i}: HSN/SAC code "${hsnCode}" does not exist in HSN master data`,
               );
               hasValidationError = true;
             }
+          }
+
+          const quantity =
+            (i === 1
+              ? row["Item Quantity*"] ?? row["Item Quantity"]
+              : row[`Item ${i} Quantity*`] ?? row[`Item ${i} Quantity`]) ??
+            row[`Item ${i} - Quantity`];
+          if (quantity === undefined || quantity === null || quantity.toString().trim() === "") {
+            errors.push(`Row ${rowNum}, Item ${i}: Quantity is required`);
+            hasValidationError = true;
+          } else if (!Number.isFinite(Number(quantity)) || Number(quantity) <= 0) {
+            errors.push(`Row ${rowNum}, Item ${i}: Quantity must be a positive number`);
+            hasValidationError = true;
           }
 
           const rate = parseFloat(row[rateField] || row[`Item ${i} - Rate*`]);
@@ -721,7 +715,7 @@ export default function BulkInvoiceUploadPage() {
         }
       }
 
-      if (!itemFound) {
+      if (!poData && !itemFound) {
         errors.push(`Row ${rowNum}: At least one item is required`);
         hasValidationError = true;
       }
@@ -731,9 +725,26 @@ export default function BulkInvoiceUploadPage() {
         const client = findClient(row["Client Code"].toString().trim(), null);
         if (client) {
           row._clientData = client;
+          if (hasClientName) {
+            const namedClient = findClient(
+              null,
+              row["Client Name*"].toString().trim(),
+            );
+            if (!namedClient) {
+              errors.push(
+                `Row ${rowNum}: Client "${row["Client Name*"]}" does not exist in client master data`,
+              );
+              hasValidationError = true;
+            } else if (String(namedClient._id) !== String(client._id)) {
+              errors.push(
+                `Row ${rowNum}: Client Name "${row["Client Name*"]}" does not match Client Code "${row["Client Code"]}"`,
+              );
+              hasValidationError = true;
+            }
+          }
         } else {
           errors.push(
-            `Row ${rowNum}: Client Code "${row["Client Code"]}" not found`,
+            `Row ${rowNum}: Client Code "${row["Client Code"]}" does not exist in client master data`,
           );
           hasValidationError = true;
         }
@@ -744,8 +755,12 @@ export default function BulkInvoiceUploadPage() {
         );
         if (client) {
           row._clientData = client;
+        } else {
+          errors.push(
+            `Row ${rowNum}: Client "${row["Client Name*"]}" does not exist in client master data`,
+          );
+          hasValidationError = true;
         }
-        // Don't error for new client - they can be created
       }
     }
 
@@ -892,9 +907,9 @@ export default function BulkInvoiceUploadPage() {
           const hsnCode = row["Item HSN/SAC*"]
             ? row["Item HSN/SAC*"].toString().trim()
             : "";
-          const quantity = row["Item Quantity"]
-            ? parseFloat(row["Item Quantity"]) || 1
-            : 1;
+          const quantity = Number(
+            row["Item Quantity*"] ?? row["Item Quantity"] ?? 0,
+          );
           const rate = row["Item Rate*"]
             ? parseFloat(row["Item Rate*"]) || 0
             : 0;
@@ -1079,8 +1094,9 @@ export default function BulkInvoiceUploadPage() {
         row && row["Item HSN/SAC*"]
           ? row["Item HSN/SAC*"].toString().trim()
           : "";
-      const quantity =
-        row && row["Item Quantity"] ? parseFloat(row["Item Quantity"]) || 1 : 1;
+      const quantity = Number(
+        row?.["Item Quantity*"] ?? row?.["Item Quantity"] ?? 0,
+      );
       const rate =
         row && row["Item Rate*"] ? parseFloat(row["Item Rate*"]) || 0 : 0;
 
@@ -1292,7 +1308,7 @@ export default function BulkInvoiceUploadPage() {
           items = excelItems.map((row) => ({
             description: row["Item Description*"],
             hsn: row["Item HSN/SAC*"],
-            quantity: row["Item Quantity"] || "1",
+            quantity: row["Item Quantity*"] ?? row["Item Quantity"] ?? "",
             rate: row["Item Rate*"],
             hasHsn: getHsnData(row["Item HSN/SAC*"]) ? true : false,
           }));
@@ -1301,7 +1317,7 @@ export default function BulkInvoiceUploadPage() {
           items = poData.items.map((item) => ({
             description: item.description || "",
             hsn: item.hsnSac || "",
-            quantity: item.quantity || 1,
+            quantity: item.quantity,
             rate: item.rate || 0,
             hasHsn: getHsnData(item.hsnSac) ? true : false,
           }));
@@ -1484,7 +1500,7 @@ export default function BulkInvoiceUploadPage() {
           items: inv.items.map((item) => ({
             description: item.description || "",
             hsnSac: item.hsnSac || "",
-            quantity: item.quantity || 1,
+            quantity: item.quantity,
             rate: item.rate || 0,
             taxableValue: item.taxableValue || 0,
             gstRate: item.gstRate || 0,
@@ -1515,26 +1531,23 @@ export default function BulkInvoiceUploadPage() {
         invoices: formattedInvoices,
       });
 
-      if (response && response.success) {
-        const skippedCount = previewData.length - validEnrichedRows.length;
-        const successMessage =
-          skippedCount > 0
-            ? `✅ Successfully created ${response.data?.created || 0} invoice(s)! ${skippedCount} invoice(s) skipped due to errors.`
-            : `✅ Successfully created ${response.data?.created || 0} invoice(s)!`;
+      if (response?.data?.created > 0) {
+        const skippedCount = previewData.filter((invoice) => invoice.hasErrors).length;
+        toast.success(
+          `Successfully created ${response.data.created} invoice(s).` +
+            (skippedCount ? ` ${skippedCount} invoice(s) skipped due to validation errors.` : ""),
+        );
 
-        toast.success(successMessage);
+        response.data.errors?.forEach((err) => {
+          toast.error(`Invoice ${err.index}: ${err.error}`);
+        });
         handleClose();
         if (onSuccess) onSuccess();
       } else {
-        const errorMessage = response?.message || "Bulk upload failed";
-        toast.error(errorMessage);
-
-        if (response?.data?.errors && response.data.errors.length > 0) {
-          console.error("Validation errors:", response.data.errors);
-          response.data.errors.forEach((err) => {
-            toast.error(`Invoice ${err.index}: ${err.error}`);
-          });
-        }
+        toast.error(response?.message || "Bulk upload failed");
+        response?.data?.errors?.forEach((err) => {
+          toast.error(`Invoice ${err.index}: ${err.error}`);
+        });
       }
     } catch (error) {
       console.error("Upload error:", error);
@@ -1744,7 +1757,7 @@ export default function BulkInvoiceUploadPage() {
                         <td className="px-4 py-2">998314</td>
                       </tr>
                       <tr>
-                        <td className="px-4 py-2 font-medium">Item Quantity</td>
+                        <td className="px-4 py-2 font-medium">Item Quantity*</td>
                         <td className="px-4 py-2">Quantity (defaults to 1)</td>
                         <td className="px-4 py-2">No</td>
                         <td className="px-4 py-2">2</td>
@@ -2379,4 +2392,3 @@ const convertToWords = (num) => {
 
   return result.trim() + " Only";
 };
-

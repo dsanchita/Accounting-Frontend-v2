@@ -27,8 +27,44 @@ export const createInvoiceApi = async (payload) => {
 
 //bulk upload
 export const bulkCreateInvoicesApi = async (payload) => {
-  const { data } = await API.post(INVOICE_BASE, payload);
-  return data;
+  const invoices = Array.isArray(payload?.invoices) ? payload.invoices : [];
+  const createdInvoices = [];
+  const errors = [];
+
+  if (invoices.length === 0) {
+    return {
+      success: false,
+      data: { created: 0, invoices: [], errors: [] },
+      message: "No invoices to create",
+    };
+  }
+
+  for (const [index, invoice] of invoices.entries()) {
+    try {
+      createdInvoices.push(await createInvoiceApi(invoice));
+    } catch (error) {
+      errors.push({
+        index: index + 1,
+        error:
+          error.response?.data?.message ||
+          error.message ||
+          "Failed to create invoice",
+      });
+    }
+  }
+
+  return {
+    success: errors.length === 0,
+    data: {
+      created: createdInvoices.length,
+      invoices: createdInvoices,
+      errors,
+    },
+    message:
+      errors.length === 0
+        ? "Invoices created successfully"
+        : `Created ${createdInvoices.length} of ${invoices.length} invoice(s)`,
+  };
 };
 
 // GET LIST
