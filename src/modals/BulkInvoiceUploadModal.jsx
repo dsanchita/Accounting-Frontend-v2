@@ -269,34 +269,64 @@ const BulkInvoiceUploadModal = ({
 
     const str = dateStr.toString().trim();
 
-    // Handle DD/MM/YYYY format
+    // Accept both DD/MM/YYYY and MM/DD/YYYY, preferring DD/MM when ambiguous.
     if (str.includes("/")) {
       const parts = str.split("/");
       if (parts.length === 3) {
-        const day = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1;
-        let year = parseInt(parts[2], 10);
+        const first = Number(parts[0]);
+        const second = Number(parts[1]);
+        let year = Number(parts[2]);
 
-        if (year < 100) {
-          year = year + 2000;
-        }
+        if (![first, second, year].every(Number.isInteger)) return null;
+        if (year < 100) year += 2000;
+
+        const isUsFormat = second > 12 && first <= 12;
+        const day = isUsFormat ? second : first;
+        const month = (isUsFormat ? first : second) - 1;
 
         const date = new Date(year, month, day);
-        return isNaN(date.getTime()) ? null : date;
+        if (
+          date.getFullYear() !== year ||
+          date.getMonth() !== month ||
+          date.getDate() !== day
+        ) {
+          return null;
+        }
+        return date;
       }
     }
 
     // Handle YYYY-MM-DD format
-    if (str.includes("-")) {
-      const parts = str.split(" ");
-      const datePart = parts[0];
-      const [year, month, day] = datePart.split("-").map(Number);
+    const isoDateMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|T|\s)/);
+    if (isoDateMatch) {
+      const [, yearPart, monthPart, dayPart] = isoDateMatch;
+      const year = Number(yearPart);
+      const month = Number(monthPart);
+      const day = Number(dayPart);
       const date = new Date(year, month - 1, day);
-      return isNaN(date.getTime()) ? null : date;
+      if (
+        date.getFullYear() !== year ||
+        date.getMonth() !== month - 1 ||
+        date.getDate() !== day
+      ) {
+        return null;
+      }
+      return date;
     }
 
     const date = new Date(str);
     return isNaN(date.getTime()) ? null : date;
+  };
+
+  const getInvoiceGroupingKey = (row, index) => {
+    const groupId = row?.["Invoice Group ID*"]?.toString().trim();
+    if (!groupId) return `ROW-${index + 1}`;
+
+    const parsedDate = row["Invoice Date*"] ? parseDate(row["Invoice Date*"]) : null;
+    const dateKey = parsedDate
+      ? `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, "0")}-${String(parsedDate.getDate()).padStart(2, "0")}`
+      : "";
+    return JSON.stringify([groupId, dateKey]);
   };
 
   // Auto-fetch client by code or name
@@ -488,20 +518,9 @@ const BulkInvoiceUploadModal = ({
     rows.forEach((row, index) => {
       if (!row) return;
 
-      const groupId = row["Invoice Group ID*"];
-      if (!groupId || groupId.toString().trim() === "") {
-        const uniqueId = `ROW-${index + 1}`;
-        if (!groups[uniqueId]) {
-          groups[uniqueId] = [];
-        }
-        groups[uniqueId].push(row);
-      } else {
-        const groupIdStr = groupId.toString().trim();
-        if (!groups[groupIdStr]) {
-          groups[groupIdStr] = [];
-        }
-        groups[groupIdStr].push(row);
-      }
+      const groupKey = getInvoiceGroupingKey(row, index);
+      if (!groups[groupKey]) groups[groupKey] = [];
+      groups[groupKey].push(row);
     });
 
     return groups;
@@ -533,14 +552,14 @@ const BulkInvoiceUploadModal = ({
 
     const groupId = row["Invoice Group ID*"];
     if (groupId && groupId.toString().trim() !== "") {
-      const groupIdStr = groupId.toString().trim();
+      const groupKey = getInvoiceGroupingKey(row, index);
       const poRef = row["PO Reference"] ? row["PO Reference"].toString().trim() : "";
       
-      if (!groupPOReferences[groupIdStr]) {
-        groupPOReferences[groupIdStr] = new Set();
+      if (!groupPOReferences[groupKey]) {
+        groupPOReferences[groupKey] = new Set();
       }
       if (poRef) {
-        groupPOReferences[groupIdStr].add(poRef);
+        groupPOReferences[groupKey].add(poRef);
       }
     }
   });
@@ -566,8 +585,9 @@ const BulkInvoiceUploadModal = ({
 
     // NEW VALIDATION: Check if group has multiple different PO references
     const groupId = row["Invoice Group ID*"] ? row["Invoice Group ID*"].toString().trim() : "";
-    if (groupId && groupPOReferences[groupId] && groupPOReferences[groupId].size > 1) {
-      const poRefs = Array.from(groupPOReferences[groupId]).join(", ");
+    const groupKey = getInvoiceGroupingKey(row, index);
+    if (groupId && groupPOReferences[groupKey] && groupPOReferences[groupKey].size > 1) {
+      const poRefs = Array.from(groupPOReferences[groupKey]).join(", ");
       errors.push(`Row ${rowNum}: Invoice Group "${groupId}" contains multiple different PO References (${poRefs}).For different PO group id should also be different.`);
       hasValidationError = true;
     }
@@ -1331,7 +1351,7 @@ const BulkInvoiceUploadModal = ({
         }
 
         previewInvoices.push({
-          groupId,
+          groupId: firstRow["Invoice Group ID*"]?.toString().trim() || groupId,
           invoiceDate,
           poRef,
           poData,
@@ -1643,8 +1663,9 @@ const BulkInvoiceUploadModal = ({
                     <div className="text-2xl mb-2">2️⃣</div>
                     <h4 className="font-semibold mb-1">Fill Your Data</h4>
                     <p className="text-sm text-gray-600">
-                      Enter invoice details - one row per item, same Group ID
-                      for multiple items
+                      Use one row per item. Reuse the Group ID and invoice date
+                      to combine items; a different invoice date creates a
+                      separate invoice.
                     </p>
                   </div>
                   <div className="bg-white p-4 rounded-lg shadow-sm">
@@ -1679,8 +1700,9 @@ const BulkInvoiceUploadModal = ({
                           Invoice Group ID*
                         </td>
                         <td className="px-4 py-2">
-                          All items with the same Invoice Group ID <br />
-                          will be combined into a single invoice.
+                          Rows with the same Invoice Group ID and invoice date
+                          are combined into one invoice. A different invoice
+                          date creates a separate invoice.
                         </td>
                         <td className="px-4 py-2">
                           <span className="text-red-600">Yes</span>

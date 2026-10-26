@@ -229,7 +229,7 @@ const InvoiceData = () => {
     if (!user?.company?._id || !isAdminOrSuperAdmin) return;
     try {
       const res = await getInvoicesApi(user.company._id, { approvalStatus: "Pending", limit: 1 });
-      setPendingApprovalsCount(res.pagination?.total || res.data?.length || 0);
+      setPendingApprovalsCount(res.meta?.total ?? res.data?.length ?? 0);
     } catch (err) {
       console.error("Error fetching pending approvals:", err);
     }
