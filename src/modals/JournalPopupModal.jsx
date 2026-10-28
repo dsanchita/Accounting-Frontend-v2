@@ -369,15 +369,24 @@ export default function JournalPopupModal({ open, onClose, initialSearch = "" })
                   {filteredJournal.createdBy && (
                     <p className="text-[10px] text-slate-400">
                       Created by{" "}
-                      <span className="font-bold text-slate-600 capitalize">{filteredJournal.createdBy.name}</span>
+                      <span className="font-bold text-slate-600 capitalize">
+                        {typeof filteredJournal.createdBy === "object"
+                          ? filteredJournal.createdBy.name || filteredJournal.createdBy.email || "User"
+                          : filteredJournal.createdBy}
+                      </span>
                       {" "}on {fmtDateTime(filteredJournal.createdAt)}
                     </p>
                   )}
                   {filteredJournal.updatedBy &&
-                    filteredJournal.updatedBy._id !== filteredJournal.createdBy?._id && (
+                    (filteredJournal.updatedBy?._id || filteredJournal.updatedBy) !==
+                      (filteredJournal.createdBy?._id || filteredJournal.createdBy) && (
                       <p className="text-[10px] text-slate-400">
                         Updated by{" "}
-                        <span className="font-bold text-slate-600 capitalize">{filteredJournal.updatedBy.name}</span>
+                        <span className="font-bold text-slate-600 capitalize">
+                          {typeof filteredJournal.updatedBy === "object"
+                            ? filteredJournal.updatedBy.name || filteredJournal.updatedBy.email || "User"
+                            : filteredJournal.updatedBy}
+                        </span>
                         {" "}on {fmtDateTime(filteredJournal.updatedAt)}
                       </p>
                     )}

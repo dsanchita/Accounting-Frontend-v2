@@ -7,6 +7,8 @@ import {
   Search, Shield, AlertCircle
 } from "lucide-react";
 import { getJournalAuditLogsApi } from "../apis/auditLog.api";
+import { getJournalByIdApi } from "../apis/journalApi";
+import { getUsersApi } from "../apis/userApi";
 import { useAuth } from "../contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -16,6 +18,60 @@ const formatDateTime = (d) => dayjs(d).format("DD MMM YYYY, hh:mm A");
 
 const calculateTotalDebit  = (j) => j.lines?.reduce((s, l) => s + (l.debit  || 0), 0) || 0;
 const calculateTotalCredit = (j) => j.lines?.reduce((s, l) => s + (l.credit || 0), 0) || 0;
+
+const resolveUserInfo = (userRef, users = [], currentUser = null) => {
+  if (!userRef) return null;
+
+  if (typeof userRef === "object") {
+    const name =
+      userRef.name ||
+      (userRef.firstName ? `${userRef.firstName} ${userRef.lastName || ""}`.trim() : null) ||
+      userRef.email?.split("@")[0];
+    if (name) {
+      return { name, email: userRef.email || "" };
+    }
+    const id = userRef._id || userRef.id;
+    if (id) {
+      if (currentUser && (String(currentUser._id) === String(id) || String(currentUser.id) === String(id))) {
+        return {
+          name: currentUser.name || currentUser.email?.split("@")[0] || "User",
+          email: currentUser.email || "",
+        };
+      }
+      const found = users.find((u) => String(u._id || u.id) === String(id));
+      if (found) {
+        return {
+          name: found.name || (found.firstName ? `${found.firstName} ${found.lastName || ""}`.trim() : null) || found.email?.split("@")[0] || "User",
+          email: found.email || "",
+        };
+      }
+    }
+  }
+
+  if (typeof userRef === "string") {
+    const trimmed = userRef.trim();
+    if (!trimmed) return null;
+    if (currentUser && (String(currentUser._id) === trimmed || String(currentUser.id) === trimmed)) {
+      return {
+        name: currentUser.name || currentUser.email?.split("@")[0] || "User",
+        email: currentUser.email || "",
+      };
+    }
+    const found = users.find((u) => String(u._id || u.id) === trimmed);
+    if (found) {
+      return {
+        name: found.name || (found.firstName ? `${found.firstName} ${found.lastName || ""}`.trim() : null) || found.email?.split("@")[0] || "User",
+        email: found.email || "",
+      };
+    }
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(trimmed);
+    if (!isObjectId) {
+      return { name: trimmed, email: "" };
+    }
+  }
+
+  return null;
+};
 
 const VOUCHER_COLORS = {
   SALES:    { cls: "bg-emerald-50 text-emerald-700 border-emerald-200",  g: "linear-gradient(135deg,#064e3b,#059669)", blob: "#6ee7b7" },
@@ -33,36 +89,96 @@ const getVoucherStyle = (type) =>
 const JournalDetailsModal = ({ open, isOpen, onClose, journal, voucherNo = null }) => {
   const visible = open || isOpen;
   const { user } = useAuth();
+  const [currentJournal, setCurrentJournal] = useState(journal);
+  const [usersList, setUsersList] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
 
+  useEffect(() => {
+    setCurrentJournal(journal);
+  }, [journal]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const journalId = journal?._id || (typeof journal === "string" ? journal : null);
+    if (visible && journalId && user?.company?._id) {
+      getJournalByIdApi(user.company._id, journalId)
+        .then((res) => {
+          const fetched = res?.data || res;
+          if (isMounted && fetched && fetched._id) {
+            setCurrentJournal((prev) => ({ ...prev, ...fetched }));
+          }
+        })
+        .catch((err) => {
+          console.error("Error refreshing journal details:", err);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [visible, journal?._id, user?.company?._id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (visible) {
+      getUsersApi()
+        .then((res) => {
+          const list = res?.users || res?.data || res || [];
+          if (isMounted && Array.isArray(list)) {
+            setUsersList(list);
+          }
+        })
+        .catch((err) => {
+          console.error("Error loading users for journal details:", err);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [visible]);
+
+  const activeJournal = currentJournal || journal;
+
   const fetchAuditLogs = useCallback(async () => {
-    if (!journal?._id || !user?.company?._id) return;
+    if (!activeJournal?._id || !user?.company?._id) return;
     try {
       setLoadingAudit(true);
-      const res = await getJournalAuditLogsApi(user.company._id, journal._id);
+      const res = await getJournalAuditLogsApi(user.company._id, activeJournal._id);
       setAuditLogs(res.data?.data || []);
     } catch (error) {
       console.error("Error fetching journal audit logs:", error);
     } finally {
       setLoadingAudit(false);
     }
-  }, [journal?._id, user?.company?._id]);
+  }, [activeJournal?._id, user?.company?._id]);
 
   useEffect(() => {
-    if (visible && journal?._id) {
+    if (visible && activeJournal?._id) {
       fetchAuditLogs();
     } else {
       setAuditLogs([]);
     }
-  }, [visible, journal?._id, fetchAuditLogs]);
+  }, [visible, activeJournal?._id, fetchAuditLogs]);
 
-  if (!visible || !journal) return null;
+  if (!visible || !activeJournal) return null;
 
-  const totalDebit  = calculateTotalDebit(journal);
-  const totalCredit = calculateTotalCredit(journal);
+  const totalDebit  = calculateTotalDebit(activeJournal);
+  const totalCredit = calculateTotalCredit(activeJournal);
   const isBalanced  = Math.abs(totalDebit - totalCredit) < 0.01;
-  const vs          = getVoucherStyle(journal.voucherType);
+  const vs          = getVoucherStyle(activeJournal.voucherType);
+
+  const creator = resolveUserInfo(activeJournal.createdBy, usersList, user);
+  const updater = resolveUserInfo(activeJournal.updatedBy, usersList, user);
+  const creatorName =
+    creator?.name ||
+    (typeof activeJournal.createdBy === "string" && !/^[0-9a-fA-F]{24}$/.test(activeJournal.createdBy)
+      ? activeJournal.createdBy
+      : "System");
+  const updaterName =
+    updater?.name ||
+    (typeof activeJournal.updatedBy === "string" && !/^[0-9a-fA-F]{24}$/.test(activeJournal.updatedBy)
+      ? activeJournal.updatedBy
+      : null);
 
   const renderJournalLineChanges = (details) => {
     if (!details) return null;
@@ -199,10 +315,10 @@ const JournalDetailsModal = ({ open, isOpen, onClose, journal, voucherNo = null 
                 <h3 className="text-sm font-extrabold text-white tracking-tight">Journal Entry details</h3>
                 <div className="flex items-center gap-3 mt-0.5">
                   <span className="flex items-center gap-1 text-[11px] text-white/70">
-                    <CalendarDays size={10} /> {formatDate(journal.date)}
+                    <CalendarDays size={10} /> {formatDate(activeJournal.date)}
                   </span>
                   <span className="flex items-center gap-1 text-[11px] text-white/70">
-                    <Clock size={10} /> {formatDateTime(journal.createdAt)}
+                    <Clock size={10} /> {formatDateTime(activeJournal.createdAt)}
                   </span>
                 </div>
               </div>
@@ -229,10 +345,10 @@ const JournalDetailsModal = ({ open, isOpen, onClose, journal, voucherNo = null 
             {/* Info strip */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { label: "Number", value: journal.number, mono: true, icon: Hash },
-                { label: "Type", value: journal.voucherType, badge: true, icon: Tag },
-                { label: "Source", value: journal.sourceType, icon: Shield },
-                { label: "Party", value: journal.partyName || "N/A", icon: User },
+                { label: "Number", value: activeJournal.number, mono: true, icon: Hash },
+                { label: "Type", value: activeJournal.voucherType, badge: true, icon: Tag },
+                { label: "Source", value: activeJournal.sourceType, icon: Shield },
+                { label: "Party", value: activeJournal.partyName || "N/A", icon: User },
               ].map((s) => (
                 <div key={s.label} className="bg-slate-50/50 rounded-2xl border border-slate-100 p-4 relative group">
                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">{s.label}</p>
@@ -255,13 +371,13 @@ const JournalDetailsModal = ({ open, isOpen, onClose, journal, voucherNo = null 
                 <p className="text-[9px] font-black text-slate-700 uppercase tracking-widest">Narration</p>
               </div>
               <p className="text-xs font-medium text-slate-700 leading-relaxed italic">
-                 {journal.narration || "No narration provided"}
+                 {activeJournal.narration || "No narration provided"}
               </p>
-              {journal.referenceNumber && (
+              {activeJournal.referenceNumber && (
                 <div className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-100 rounded-xl w-fit">
                    <Hash size={11} className="text-slate-400" />
                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Ref:</span>
-                   <span className="text-[11px] font-mono font-black text-blue-700">{journal.referenceNumber}</span>
+                   <span className="text-[11px] font-mono font-black text-blue-700">{activeJournal.referenceNumber}</span>
                 </div>
               )}
             </div>
@@ -273,7 +389,7 @@ const JournalDetailsModal = ({ open, isOpen, onClose, journal, voucherNo = null 
                     <BookOpen size={13} className="text-slate-400" />
                     <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest">Journal Lines</p>
                     <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-black text-white" style={{ background: vs.g }}>
-                       {journal.lines?.length || 0}
+                       {activeJournal.lines?.length || 0}
                     </span>
                   </div>
                </div>
@@ -287,7 +403,7 @@ const JournalDetailsModal = ({ open, isOpen, onClose, journal, voucherNo = null 
                      </tr>
                    </thead>
                    <tbody className="divide-y divide-slate-100">
-                     {journal.lines?.map((line, i) => (
+                     {activeJournal.lines?.map((line, i) => (
                        <tr key={line._id || i} className="hover:bg-blue-50/30 transition-colors">
                          <td className="px-5 py-3.5">
                            <div className="flex items-center gap-3">
@@ -335,27 +451,27 @@ const JournalDetailsModal = ({ open, isOpen, onClose, journal, voucherNo = null 
             {/* Metadata strip */}
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100">
-                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Authenticated by</p>
+                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Created by</p>
                  <div className="flex items-center gap-3">
                    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-[10px] font-bold">
-                     {(journal.createdBy?.name || "?")[0].toUpperCase()}
+                     {(creatorName || "?")[0].toUpperCase()}
                    </div>
                    <div>
-                     <p className="text-xs font-bold text-slate-800">{journal.createdBy?.name || "System"}</p>
-                     <p className="text-[10px] text-slate-400">{formatDateTime(journal.createdAt)}</p>
+                     <p className="text-xs font-bold text-slate-800">{creatorName}</p>
+                     <p className="text-[10px] text-slate-400">{formatDateTime(activeJournal.createdAt)}</p>
                    </div>
                  </div>
               </div>
-              {journal.updatedBy && (
+              {updaterName && (
                  <div className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100">
                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Last Modified</p>
                    <div className="flex items-center gap-3">
                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-[10px] font-bold">
-                       {(journal.updatedBy?.name || "?")[0].toUpperCase()}
+                       {(updaterName || "?")[0].toUpperCase()}
                      </div>
                      <div>
-                       <p className="text-xs font-bold text-slate-800">{journal.updatedBy?.name || "N/A"}</p>
-                       <p className="text-[10px] text-slate-400">{formatDateTime(journal.updatedAt)}</p>
+                       <p className="text-xs font-bold text-slate-800">{updaterName}</p>
+                       <p className="text-[10px] text-slate-400">{formatDateTime(activeJournal.updatedAt)}</p>
                      </div>
                    </div>
                  </div>

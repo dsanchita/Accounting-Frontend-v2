@@ -441,20 +441,26 @@ export default function AdminApprovalsDialog({ open, onClose }) {
                           {journalDetails.createdBy && (
                             <div>
                               <span className="font-medium">Created by:</span>{" "}
-                              {journalDetails.createdBy.name} on{" "}
+                              {typeof journalDetails.createdBy === "object"
+                                ? journalDetails.createdBy.name || journalDetails.createdBy.email || "User"
+                                : journalDetails.createdBy}{" "}
+                              on{" "}
                               {new Date(
                                 journalDetails.createdAt,
                               ).toLocaleString()}
                             </div>
                           )}
                           {journalDetails.updatedBy &&
-                            journalDetails.updatedBy._id !==
-                              journalDetails.createdBy?._id && (
+                            (journalDetails.updatedBy?._id || journalDetails.updatedBy) !==
+                              (journalDetails.createdBy?._id || journalDetails.createdBy) && (
                               <div>
                                 <span className="font-medium">
                                   Last updated by:
                                 </span>{" "}
-                                {journalDetails.updatedBy.name} on{" "}
+                                {typeof journalDetails.updatedBy === "object"
+                                  ? journalDetails.updatedBy.name || journalDetails.updatedBy.email || "User"
+                                  : journalDetails.updatedBy}{" "}
+                                on{" "}
                                 {new Date(
                                   journalDetails.updatedAt,
                                 ).toLocaleString()}

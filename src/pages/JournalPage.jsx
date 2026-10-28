@@ -537,6 +537,7 @@ export default function ManualJournalPage() {
         partyId: selectedInvoice?.billTo?._id || null,
         partyName: selectedInvoice?.billTo?.name || null,
         externalDocNo: form.externalDocNo || null,
+        createdBy: user?._id || user?.id,
         lines: form.lines.map(({ id, ...line }) => ({
           accountId: line.accountId,
           debit: parseFloat(line.debit) || 0,
@@ -549,7 +550,10 @@ export default function ManualJournalPage() {
           await updateJournalApi(
             user?.company?._id,
             editingJournal._id,
-            journalData,
+            {
+              ...journalData,
+              updatedBy: user?._id || user?.id,
+            },
           );
           toast.success("Journal updated successfully!");
         } else {
@@ -558,6 +562,7 @@ export default function ManualJournalPage() {
             editingJournal,
             {
               ...journalData,
+              updatedBy: user?._id || user?.id,
               requestComment: requestComment.trim(),
             },
           );

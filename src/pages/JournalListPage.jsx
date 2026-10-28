@@ -1525,7 +1525,16 @@ const [loadingStats, setLoadingStats] = useState(false);
                       <h4 className="font-medium text-gray-700 mb-2">Created</h4>
                       <div className="flex items-center gap-2">
                         <FiUser className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{selectedJournal.createdBy?.name || "Unknown"}</span>
+                        <span className="text-sm">
+                          {selectedJournal.createdBy?.name ||
+                            (typeof selectedJournal.createdBy === "string" &&
+                              (user && (String(user._id) === selectedJournal.createdBy || String(user.id) === selectedJournal.createdBy)
+                                ? user.name || user.email
+                                : !/^[0-9a-fA-F]{24}$/.test(selectedJournal.createdBy)
+                                ? selectedJournal.createdBy
+                                : "Unknown")) ||
+                            "Unknown"}
+                        </span>
                       </div>
                       <div className="mt-1 text-xs text-gray-500">{format(new Date(selectedJournal.createdAt), "MMM dd, yyyy HH:mm")}</div>
                     </div>
@@ -1535,7 +1544,16 @@ const [loadingStats, setLoadingStats] = useState(false);
                         <h4 className="font-medium text-gray-700 mb-2">Last Updated</h4>
                         <div className="flex items-center gap-2">
                           <FiUser className="h-4 w-4 text-gray-400" />
-                          <span className="text-sm">{selectedJournal.updatedBy?.name || "Unknown"}</span>
+                          <span className="text-sm">
+                            {selectedJournal.updatedBy?.name ||
+                              (typeof selectedJournal.updatedBy === "string" &&
+                                (user && (String(user._id) === selectedJournal.updatedBy || String(user.id) === selectedJournal.updatedBy)
+                                  ? user.name || user.email
+                                  : !/^[0-9a-fA-F]{24}$/.test(selectedJournal.updatedBy)
+                                  ? selectedJournal.updatedBy
+                                  : "Unknown")) ||
+                              "Unknown"}
+                          </span>
                         </div>
                         <div className="mt-1 text-xs text-gray-500">{format(new Date(selectedJournal.updatedAt), "MMM dd, yyyy HH:mm")}</div>
                       </div>

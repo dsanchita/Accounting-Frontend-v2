@@ -95,6 +95,7 @@ export default function NewJournalModal({ isOpen, onClose, onSave }) {
           date,
           referenceNumber: reference,
           narration: notes,
+          createdBy: user?._id || user?.id,
           lines: payload.lines.map((line) => ({
             accountId: line.account,
             debit: Number(line.debit || 0),

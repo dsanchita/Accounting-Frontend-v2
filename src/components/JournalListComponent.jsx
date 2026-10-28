@@ -361,15 +361,29 @@ const isAdmin =
                         )}
                         {journal.createdBy && (
                           <div>
-                            Created by <span className="font-medium text-neutral-800 capitalize">{journal.createdBy.name}</span> on {new Date(journal.createdAt).toLocaleString()}
+                            Created by{" "}
+                            <span className="font-medium text-neutral-800 capitalize">
+                              {typeof journal.createdBy === "object"
+                                ? journal.createdBy.name || journal.createdBy.email || "User"
+                                : journal.createdBy}
+                            </span>{" "}
+                            on {new Date(journal.createdAt).toLocaleString()}
                           </div>
                         )}
 
-                        {journal.updatedBy && journal.updatedBy._id !== journal.createdBy?._id && (
-                          <div>
-                            Updated by <span className="font-medium text-neutral-800 capitalize">{journal.updatedBy.name}</span> on {new Date(journal.updatedAt).toLocaleString()}
-                          </div>
-                        )}
+                        {journal.updatedBy &&
+                          (journal.updatedBy?._id || journal.updatedBy) !==
+                            (journal.createdBy?._id || journal.createdBy) && (
+                            <div>
+                              Updated by{" "}
+                              <span className="font-medium text-neutral-800 capitalize">
+                                {typeof journal.updatedBy === "object"
+                                  ? journal.updatedBy.name || journal.updatedBy.email || "User"
+                                  : journal.updatedBy}
+                              </span>{" "}
+                              on {new Date(journal.updatedAt).toLocaleString()}
+                            </div>
+                          )}
                       </div>
                     </div>
                   );
