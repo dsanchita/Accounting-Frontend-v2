@@ -20,6 +20,7 @@ import {
 
 import InvoiceCreatedModal from "../modals/InvoiceCreatedModal";
 import { toast } from "react-toastify";
+import { splitMonthlyPeriods } from "../utils/monthlyPeriodUtils";
 
 // Lucide Icons
 import { Home, Plus, Trash2, Receipt, Download, Building, User, CreditCard, Banknote, Search, FileText, Package, Check, Loader2, ChevronDown, X, ChevronUp, ShoppingBag, List, Calendar } from "lucide-react";
@@ -435,31 +436,56 @@ const calculateTermSchedule = (po = {}) => {
       label: "General",
       termStartDate: new Date(),
       termEndDate: new Date(),
+      periods: [],
+      currentPeriod: null,
     };
   }
 
   let totalInstallments = 1;
-  const totalDays = getDateDiffInDays(startDate, endDate);
+  let currentWindowStart = formatDateInput(startDate);
+  let currentWindowEnd = formatDateInput(endDate);
+  let periods = [];
+  let currentPeriod = null;
+  const linkedInvoices = getOrderedLinkedInvoices(po);
 
   if (paymentTerms === "monthly") {
-    // Use dayjs month-diff to match PO creation page logic
-    const start = dayjs(startDate);
-    const end = dayjs(endDate);
-    totalInstallments = Math.max(1, Math.ceil(end.add(1, "day").diff(start, "month", true)));
-  } else if (paymentTerms === "weekly") {
+    periods = splitMonthlyPeriods(po.poDate, po.deliveryDate || po.dueDate);
+    totalInstallments = Math.max(1, periods.length);
+    const currentInstallment = Math.min(totalInstallments, linkedInvoices.length + 1);
+    currentPeriod = periods[currentInstallment - 1] || periods[0];
+    currentWindowStart = currentPeriod?.startDate || formatDateInput(startDate);
+    currentWindowEnd = currentPeriod?.endDate || formatDateInput(endDate);
+
+    const installmentAmount = currentPeriod
+      ? roundMoney(Number(po.totalAmount || 0) * (currentPeriod.ratio / Math.max(1, periods.reduce((s, p) => s + p.ratio, 0))))
+      : roundMoney(Number(po.totalAmount || 0) / totalInstallments);
+
+    return {
+      totalInstallments,
+      currentInstallment,
+      installmentAmount,
+      label: `Month ${currentInstallment} of ${totalInstallments} (${currentPeriod?.periodLabel || currentPeriod?.monthName || ""})`,
+      termStartDate: currentPeriod ? new Date(currentPeriod.startDate) : startDate,
+      termEndDate: currentPeriod ? new Date(currentPeriod.endDate) : endDate,
+      currentWindowStart,
+      currentWindowEnd,
+      periods,
+      currentPeriod,
+    };
+  }
+
+  // Weekly or other periodic terms
+  const totalDays = getDateDiffInDays(startDate, endDate);
+  if (paymentTerms === "weekly") {
     totalInstallments = Math.max(1, Math.ceil(totalDays / 7));
   }
 
-  // Current term = number of linked invoices + 1, capped at totalInstallments
-  const linkedInvoices = getOrderedLinkedInvoices(po);
   const currentInstallment = Math.min(totalInstallments, linkedInvoices.length + 1);
-
-  // Installment amount is total amount divided by total installments
   const installmentAmount = roundMoney(Number(po.totalAmount || 0) / Math.max(1, totalInstallments));
   const termDays = paymentTerms === "weekly" ? 7 : 30;
   const currentTermStartOffset = (currentInstallment - 1) * termDays;
-  const currentWindowStart = addDaysToDateString(startDate, currentTermStartOffset);
-  const currentWindowEnd = addDaysToDateString(
+  currentWindowStart = addDaysToDateString(startDate, currentTermStartOffset);
+  currentWindowEnd = addDaysToDateString(
     startDate,
     Math.min(totalDays - 1, currentTermStartOffset + termDays - 1),
   );
@@ -468,11 +494,13 @@ const calculateTermSchedule = (po = {}) => {
     totalInstallments,
     currentInstallment,
     installmentAmount,
-    label: `${paymentTerms === "monthly" ? "Month" : "Week"} ${currentInstallment} of ${totalInstallments}`,
+    label: `${paymentTerms === "weekly" ? "Week" : "Period"} ${currentInstallment} of ${totalInstallments}`,
     termStartDate: startDate,
     termEndDate: endDate,
     currentWindowStart,
     currentWindowEnd,
+    periods: [],
+    currentPeriod: null,
   };
 };
 
@@ -506,7 +534,7 @@ const buildPaymentTermSchedule = (po = {}) => {
   const scheduleStart = po.referenceDate || po.poDate;
   const scheduleEnd = po.deliveryDate;
 
-  if (!termDays || !scheduleStart || !scheduleEnd) {
+  if (!scheduleStart || !scheduleEnd) {
     return {
       termDays: 0,
       totalInstallments: 1,
@@ -517,36 +545,47 @@ const buildPaymentTermSchedule = (po = {}) => {
     };
   }
 
-  const totalDurationDays = Math.max(1, getDateDiffInDays(scheduleStart, scheduleEnd));
-  let totalInstallments;
-  if (termDays === 30) {
-    // Use dayjs month-diff to match PO creation page logic
-    const start = dayjs(scheduleStart);
-    const end = dayjs(scheduleEnd);
-    totalInstallments = Math.max(1, Math.ceil(end.add(1, "day").diff(start, "month", true)));
-  } else {
-    totalInstallments = Math.max(1, Math.ceil(totalDurationDays / termDays));
+  const linkedInvoices = po.linkedInvoices || [];
+
+  if (po.paymentTerms === "monthly" || termDays === 30) {
+    const periods = splitMonthlyPeriods(scheduleStart, scheduleEnd);
+    const totalInstallments = Math.max(1, periods.length);
+    const currentInstallmentNo = Math.min(totalInstallments, Math.max(1, linkedInvoices.length + 1));
+    const currentPeriod = periods[currentInstallmentNo - 1] || periods[0];
+    return {
+      termDays: currentPeriod?.daysInPeriod || 30,
+      totalInstallments,
+      currentInstallmentNo,
+      currentWindowStart: currentPeriod?.startDate || formatDateInput(scheduleStart),
+      currentWindowEnd: currentPeriod?.endDate || formatDateInput(scheduleEnd),
+      label: `Month ${currentInstallmentNo} of ${totalInstallments} (${currentPeriod?.periodLabel || ""})`,
+      currentPeriod,
+      periods,
+    };
   }
+
+  const totalDurationDays = Math.max(1, getDateDiffInDays(scheduleStart, scheduleEnd));
+  const totalInstallments = Math.max(1, Math.ceil(totalDurationDays / (termDays || 7)));
   const currentInstallmentNo = Math.min(
     totalInstallments,
-    Math.max(1, (po.linkedInvoices || []).length + 1),
+    Math.max(1, linkedInvoices.length + 1),
   );
   const currentWindowStart = addDaysToDateString(
     scheduleStart,
-    (currentInstallmentNo - 1) * termDays,
+    (currentInstallmentNo - 1) * (termDays || 7),
   );
   const currentWindowEnd = addDaysToDateString(
     scheduleStart,
-    Math.min(currentInstallmentNo * termDays, totalDurationDays),
+    Math.min(currentInstallmentNo * (termDays || 7), totalDurationDays),
   );
 
   return {
-    termDays,
+    termDays: termDays || 7,
     totalInstallments,
     currentInstallmentNo,
     currentWindowStart,
     currentWindowEnd,
-    label: `${termDays}-day terms · Invoice ${currentInstallmentNo} of ${totalInstallments}`,
+    label: `${termDays || 7}-day terms · Invoice ${currentInstallmentNo} of ${totalInstallments}`,
   };
 };
 
@@ -2498,34 +2537,72 @@ const ManualInvoicePage = () => {
       if (hasItems) {
         // Build per-item current-term portions from taxable base.
         derivedItems = items.map((item) => {
-          const baseTaxableAmount = getPoItemBaseTaxableAmount(item);
-          const rate = Number(item.rate || 0);
+          const rawQuantity = Number(item.quantity || 1);
+          // Quantity remains the same integer
+          const quantity = Math.max(1, Math.round(rawQuantity));
+          const baseRate = Number(item.rate || 0);
           const taxRate = getItemTaxRate(item);
           const alreadyInvoicedTaxable = getInvoicedTaxableAmountForPoItem(linkedInvoices, item);
-          const scheduledParts = calculateScheduledInvoiceParts({
-            totalAmount: baseTaxableAmount,
-            alreadyInvoicedAmount: alreadyInvoicedTaxable,
-            totalInstallments: schedule.totalInstallments,
-            currentInstallmentNo: schedule.currentInstallment,
-          });
-          const termTaxable = roundMoney(scheduledParts.recommendedInvoiceAmount);
-          if (termTaxable <= 0) return null;
+          const baseTaxableAmount = getPoItemBaseTaxableAmount(item);
 
-          const quantity = rate > 0
-            ? parseFloat((termTaxable / rate).toFixed(4))
-            : Number(item.quantity || 1);
+          let periodRate = baseRate;
+          let termTaxable = 0;
+          let scheduledParts = {
+            previousCarryForward: 0,
+            currentTermAmount: 0,
+            remainingAfterInvoice: 0,
+          };
+
+          if (selectedPO.paymentTerms === "monthly" && schedule.currentPeriod) {
+            // Prorated rate for this calendar month period:
+            // Rate depends on number of days in this period vs days in calendar month
+            const ratio = schedule.currentPeriod.ratio;
+            periodRate = roundMoney(baseRate * ratio);
+            termTaxable = roundMoney(quantity * periodRate);
+
+            // If final installment, reconcile against remaining PO item taxable value if present
+            if (schedule.currentInstallment === schedule.totalInstallments && baseTaxableAmount > 0) {
+              const remainingTaxable = roundMoney(Math.max(0, baseTaxableAmount - alreadyInvoicedTaxable));
+              if (remainingTaxable > 0 && Math.abs(remainingTaxable - termTaxable) <= Math.max(10, baseRate * 0.05)) {
+                termTaxable = remainingTaxable;
+                periodRate = quantity > 0 ? roundMoney(termTaxable / quantity) : termTaxable;
+              }
+            }
+
+            scheduledParts = {
+              previousCarryForward: 0,
+              currentTermAmount: termTaxable,
+              remainingAfterInvoice: Math.max(0, roundMoney(baseTaxableAmount - alreadyInvoicedTaxable - termTaxable)),
+            };
+          } else {
+            // Weekly / other term fallback
+            scheduledParts = calculateScheduledInvoiceParts({
+              totalAmount: baseTaxableAmount,
+              alreadyInvoicedAmount: alreadyInvoicedTaxable,
+              totalInstallments: schedule.totalInstallments,
+              currentInstallmentNo: schedule.currentInstallment,
+            });
+            termTaxable = roundMoney(scheduledParts.recommendedInvoiceAmount);
+            periodRate = quantity > 0 ? roundMoney(termTaxable / quantity) : baseRate;
+          }
+
+          if (termTaxable <= 0) return null;
           const termTaxAmount = roundMoney((termTaxable * taxRate) / 100);
+
+          const periodTag = schedule.currentPeriod?.periodLabel
+            ? schedule.currentPeriod.periodLabel
+            : `${selectedPO.paymentTerms === "monthly" ? "Month" : "Week"} ${schedule.currentInstallment}/${schedule.totalInstallments}`;
 
           return {
             itemId: item.itemId || item._id,
             poItemId: item.itemId || item._id,
-            description: `${item.description || ""} (${selectedPO.paymentTerms === "monthly" ? "Month" : "Week"} ${schedule.currentInstallment}/${schedule.totalInstallments})`,
+            description: `${item.description || ""} (${periodTag})`,
             hsnSac: item.hsnSac || item.hsnCode || "",
-            quantity,
-            baseQuantity: Number(item.quantity || 0),
-            baseRate: rate,
+            quantity, // ← EXACT INTEGER
+            baseQuantity: quantity,
+            baseRate,
             poRemainingQuantity: getRemainingPOItemQuantity(item),
-            rate,
+            rate: periodRate, // ← RATE DEPENDS ON NUMBER OF DAYS
             taxableValue: termTaxable,
             taxType: item.taxType || selectedPO.taxType || "GST",
             taxLabel: item.taxLabel || selectedPO.taxLabel || item.taxType || "GST",
@@ -2533,7 +2610,7 @@ const ManualInvoicePage = () => {
             taxAmount: termTaxAmount,
             taxBreakdown: scaleTaxBreakdown(
               item.taxBreakdown,
-              termTaxable / Math.max(baseTaxableAmount, 1),
+              termTaxable / Math.max(baseTaxableAmount || item.taxableValue || 1, 1),
               {
                 taxType: item.taxType || selectedPO.taxType || "GST",
                 label: item.taxLabel || selectedPO.taxLabel || item.taxType || "GST",
@@ -2552,32 +2629,56 @@ const ManualInvoicePage = () => {
             currentTermRemainingAmount: 0,
             baseRemainingAfterInvoice: scheduledParts.remainingAfterInvoice,
             remainingAfterInvoice: scheduledParts.remainingAfterInvoice,
+            periodLabel: schedule.currentPeriod?.monthName || schedule.currentPeriod?.periodLabel,
+            daysInPeriod: schedule.currentPeriod?.daysInPeriod,
+            totalDaysInMonth: schedule.currentPeriod?.totalDaysInMonth,
           };
         }).filter(Boolean);
       } else {
         // No line items – use total taxable divided by terms.
-        const totalTaxable = defaultTaxRate > 0
-          ? roundMoney(Number(selectedPO.totalAmount || 0) / (1 + defaultTaxRate / 100))
-          : roundMoney(Number(selectedPO.totalTaxableValue || selectedPO.totalAmount || 0));
-        const alreadyInvoicedTaxable = roundMoney(
-          linkedInvoices.reduce((sum, invoice) => sum + Number(invoice.totalTaxableValue || 0), 0),
-        );
-        const scheduledParts = calculateScheduledInvoiceParts({
-          totalAmount: totalTaxable,
-          alreadyInvoicedAmount: alreadyInvoicedTaxable,
-          totalInstallments: schedule.totalInstallments,
-          currentInstallmentNo: schedule.currentInstallment,
-        });
-        const termTaxable = roundMoney(scheduledParts.recommendedInvoiceAmount);
+        const defaultRate = Number(selectedPO.totalAmount || 0);
+        let termTaxable = 0;
+        let periodRate = defaultRate;
+
+        if (selectedPO.paymentTerms === "monthly" && schedule.currentPeriod) {
+          const totalRatio = schedule.periods && schedule.periods.length > 0
+            ? schedule.periods.reduce((sum, p) => sum + p.ratio, 0)
+            : 1;
+          const poTotalTaxable = defaultTaxRate > 0
+            ? roundMoney(Number(selectedPO.totalAmount || 0) / (1 + defaultTaxRate / 100))
+            : roundMoney(Number(selectedPO.totalTaxableValue || selectedPO.totalAmount || 0));
+          const monthlyTaxableBase = poTotalTaxable / Math.max(1, totalRatio);
+          periodRate = roundMoney(monthlyTaxableBase * schedule.currentPeriod.ratio);
+          termTaxable = periodRate;
+        } else {
+          const totalTaxable = defaultTaxRate > 0
+            ? roundMoney(Number(selectedPO.totalAmount || 0) / (1 + defaultTaxRate / 100))
+            : roundMoney(Number(selectedPO.totalTaxableValue || selectedPO.totalAmount || 0));
+          const alreadyInvoicedTaxable = roundMoney(
+            linkedInvoices.reduce((sum, invoice) => sum + Number(invoice.totalTaxableValue || 0), 0),
+          );
+          const scheduledParts = calculateScheduledInvoiceParts({
+            totalAmount: totalTaxable,
+            alreadyInvoicedAmount: alreadyInvoicedTaxable,
+            totalInstallments: schedule.totalInstallments,
+            currentInstallmentNo: schedule.currentInstallment,
+          });
+          termTaxable = roundMoney(scheduledParts.recommendedInvoiceAmount);
+          periodRate = termTaxable;
+        }
+
         const termTaxAmount = roundMoney((termTaxable * defaultTaxRate) / 100);
+        const periodTag = schedule.currentPeriod?.periodLabel
+          ? schedule.currentPeriod.periodLabel
+          : `${selectedPO.paymentTerms === "monthly" ? "Month" : "Week"} ${schedule.currentInstallment} of ${schedule.totalInstallments}`;
 
         derivedItems = termTaxable > 0 ? [{
           itemId: "term-" + schedule.currentInstallment,
           poItemId: "",
-          description: `Services – ${selectedPO.paymentTerms === "monthly" ? "Month" : "Week"} ${schedule.currentInstallment} of ${schedule.totalInstallments}`,
+          description: `Services – ${periodTag}`,
           hsnSac: defaultHsn,
           quantity: 1,
-          rate: termTaxable,
+          rate: periodRate,
           taxableValue: termTaxable,
           gstRate: defaultTaxRate,
           gstAmount: termTaxAmount,
@@ -2585,11 +2686,11 @@ const ManualInvoicePage = () => {
           combinedGstRate: defaultTaxRate,
           totalManuallyEdited: false,
           maxAllowedTaxableValue: termTaxable,
-          previousCarryForward: scheduledParts.previousCarryForward,
-          currentTermAmount: scheduledParts.currentTermAmount,
+          previousCarryForward: 0,
+          currentTermAmount: termTaxable,
           currentTermRemainingAmount: 0,
-          baseRemainingAfterInvoice: scheduledParts.remainingAfterInvoice,
-          remainingAfterInvoice: scheduledParts.remainingAfterInvoice,
+          baseRemainingAfterInvoice: 0,
+          remainingAfterInvoice: 0,
         }] : [];
       }
 
@@ -2806,6 +2907,17 @@ const ManualInvoicePage = () => {
       referenceDate: paymentTermSchedule.currentWindowStart || (selectedPO.poDate ? new Date(selectedPO.poDate).toISOString().split("T")[0] : prev.referenceDate),
       invoiceDate: paymentTermSchedule.currentWindowStart || prev.invoiceDate,
       dueDate: paymentTermSchedule.currentWindowEnd || (selectedPO.deliveryDate ? new Date(selectedPO.deliveryDate).toISOString().split("T")[0] : prev.dueDate),
+      monthlyBillingInfo: paymentTermSchedule.currentPeriod ? {
+        periodLabel: paymentTermSchedule.currentPeriod.periodLabel || paymentTermSchedule.currentPeriod.monthName,
+        monthName: paymentTermSchedule.currentPeriod.monthName,
+        startDate: paymentTermSchedule.currentPeriod.startDate,
+        endDate: paymentTermSchedule.currentPeriod.endDate,
+        daysInPeriod: paymentTermSchedule.currentPeriod.daysInPeriod,
+        totalDaysInMonth: paymentTermSchedule.currentPeriod.totalDaysInMonth,
+        ratio: paymentTermSchedule.currentPeriod.ratio,
+        installmentNo: paymentTermSchedule.currentInstallmentNo,
+        totalInstallments: paymentTermSchedule.totalInstallments,
+      } : prev.monthlyBillingInfo,
       currency: selectedPO.currency || "INR",
       paymentMode: paymentModeMap[selectedPO.paymentTerms] || "Bank-Transfer",
       paymentTerms: selectedPO.paymentTerms || "",

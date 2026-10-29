@@ -28,6 +28,7 @@ import { getPurchaseOrderApi, downloadPdfPurchaseOrderApi, downloadWordPurchaseO
 import { motion, AnimatePresence } from "framer-motion";
 import InvoiceDetailsModal from "./InvoiceDetailsModal";
 import { useNavigate } from "react-router-dom";
+import { splitMonthlyPeriods, calculateMonthlyDistributionBreakdown } from "../utils/monthlyPeriodUtils";
 
 /* ── helpers ──────────────────────────────────────────── */
 const fmt = (d) => (d ? dayjs(d).format("DD MMM YYYY") : "—");
@@ -106,22 +107,51 @@ const calculatePaymentDistributions = (po) => {
   if (!start.isValid() || !end.isValid() || end.isBefore(start) || totalAmount <= 0) return [];
 
   if (po.paymentTerms === "monthly") {
-    let numMonths = Math.ceil(end.add(1, "day").diff(start, "month", true));
-    if (numMonths < 1) numMonths = 1;
-    const amountPerMonth = totalAmount / numMonths;
-    let current = start.clone();
-    for (let i = 0; i < numMonths; i++) {
-      let monthEnd = current.add(1, "month").subtract(1, "day");
-      if (monthEnd.isAfter(end)) monthEnd = end;
-      result.push({
-        title: `${current.format("MMM YYYY")}`,
-        amount: amountPerMonth,
-        startDate: current.format("YYYY-MM-DD"),
-        endDate: monthEnd.format("YYYY-MM-DD"),
+    if (Array.isArray(po.distributionSchedule) && po.distributionSchedule.length > 0) {
+      return po.distributionSchedule.map((dist, i) => ({
+        title: dist.period || dist.monthName || `Month ${i + 1}`,
+        periodLabel: dist.periodLabel || `${dist.startDate} – ${dist.endDate}`,
+        amount: Number(dist.amount || 0),
+        rate: Number(dist.rate || 0),
+        startDate: dist.startDate,
+        endDate: dist.endDate,
+        daysInPeriod: dist.daysInPeriod,
+        totalDaysInMonth: dist.totalDaysInMonth,
         type: "monthly",
         index: i,
+      }));
+    }
+
+    const distResult = calculateMonthlyDistributionBreakdown({
+      poDate: po.poDate,
+      deliveryDate: po.deliveryDate || po.dueDate,
+      items: po.items || [],
+      taxType: po.taxType || "GST",
+    });
+
+    if (distResult.breakdown.length > 0) {
+      const sumBreakdown = distResult.totalAmount;
+      const poTotal = Number(po.totalAmount || 0);
+      const diff = poTotal > 0 ? poTotal - sumBreakdown : 0;
+
+      return distResult.breakdown.map((item, idx) => {
+        let amount = item.amount;
+        if (idx === distResult.breakdown.length - 1 && Math.abs(diff) > 0.001) {
+          amount = Math.max(0, Math.round((amount + diff) * 100) / 100);
+        }
+        return {
+          title: item.period,
+          periodLabel: item.periodLabel,
+          amount,
+          rate: item.rate,
+          startDate: item.startDate,
+          endDate: item.endDate,
+          daysInPeriod: item.daysInPeriod,
+          totalDaysInMonth: item.totalDaysInMonth,
+          type: "monthly",
+          index: idx,
+        };
       });
-      current = current.add(1, "month");
     }
   } else if (po.paymentTerms === "weekly") {
     const totalDays = end.diff(start, "day") + 1;

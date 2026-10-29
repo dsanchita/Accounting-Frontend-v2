@@ -38,6 +38,10 @@ import {
 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import dayjs from "dayjs";
+import {
+  splitMonthlyPeriods,
+  calculateMonthlyDistributionBreakdown,
+} from "../utils/monthlyPeriodUtils";
 
 // ─────────────────────────────────────────────────────────────────
 //  CONSTANTS
@@ -735,23 +739,35 @@ export default function PurchaseOrderPage() {
       setDistributionBreakdown([]);
       return;
     }
-    let numMonths = Math.ceil(end.add(1, "day").diff(start, "month", true));
-    if (numMonths < 1) numMonths = 1;
-    const amountPerMonth = form.totalAmount / numMonths;
-    const breakdown = [];
-    let current = start.clone();
-    for (let i = 0; i < numMonths; i++) {
-      let monthEnd = current.add(1, "month").subtract(1, "day");
-      if (monthEnd.isAfter(end)) monthEnd = end;
-      breakdown.push({
-        period: `${current.format("MMM YYYY")}`,
-        amount: amountPerMonth,
-        date: current.format("YYYY-MM-DD"),
-        startDate: current.format("DD MMM YYYY"),
-        endDate: monthEnd.format("DD MMM YYYY"),
-      });
-      current = current.add(1, "month");
+
+    const taxType = determineTaxType();
+    const result = calculateMonthlyDistributionBreakdown({
+      poDate: form.poDate,
+      deliveryDate: form.deliveryDate,
+      items: form.items,
+      taxType,
+    });
+
+    if (result.breakdown.length === 0) {
+      setDistributionBreakdown([]);
+      return;
     }
+
+    const breakdown = result.breakdown.map((item) => ({
+      period: item.period,
+      periodLabel: item.periodLabel,
+      amount: item.amount,
+      taxableValue: item.taxableValue,
+      rate: item.rate,
+      daysInPeriod: item.daysInPeriod,
+      totalDaysInMonth: item.totalDaysInMonth,
+      daysText: item.daysText,
+      ratio: item.ratio,
+      date: item.startDate,
+      startDate: dayjs(item.startDate).format("DD MMM YYYY"),
+      endDate: dayjs(item.endDate).format("DD MMM YYYY"),
+    }));
+
     setDistributionBreakdown(breakdown);
   };
 
@@ -866,17 +882,91 @@ export default function PurchaseOrderPage() {
   // ─────────────────────────────────────────────────────────────
   //  FORM HELPERS
   // ─────────────────────────────────────────────────────────────
+  const calculateItemValues = (item, paymentTerms, poDate, deliveryDate, taxType) => {
+    const quantity = Math.max(0, Number(item.quantity || 0));
+    const rate = Math.max(0, Number(item.rate || 0));
+    let taxableValue = 0;
+
+    let periods = [];
+    if (paymentTerms === "monthly" && poDate && deliveryDate) {
+      periods = splitMonthlyPeriods(poDate, deliveryDate);
+    }
+
+    if (paymentTerms === "monthly" && periods.length > 0) {
+      taxableValue = periods.reduce((sum, p) => {
+        const pRate = Math.round((rate * p.ratio + Number.EPSILON) * 100) / 100;
+        return Math.round((sum + quantity * pRate + Number.EPSILON) * 100) / 100;
+      }, 0);
+    } else {
+      taxableValue = Math.round((quantity * rate + Number.EPSILON) * 100) / 100;
+    }
+
+    let gstRate = item.gstRate;
+    let gstAmount = 0;
+    let totalAmount = taxableValue;
+
+    if (taxType === "GST") {
+      gstAmount = Math.round(((taxableValue * gstRate) / 100 + Number.EPSILON) * 100) / 100;
+      totalAmount = Math.round((taxableValue + gstAmount + Number.EPSILON) * 100) / 100;
+    } else if (taxType === "RCM") {
+      gstAmount = Math.round(((taxableValue * gstRate) / 100 + Number.EPSILON) * 100) / 100;
+      totalAmount = taxableValue;
+    } else if (taxType === "NONE") {
+      gstRate = 0;
+      gstAmount = 0;
+      totalAmount = taxableValue;
+    } else {
+      const partyCountry = getPartyCountry();
+      const countryTax = getForeignCountryTax(partyCountry);
+      gstRate = countryTax ? countryTax.taxRate : 0;
+      gstAmount = Math.round(((taxableValue * gstRate) / 100 + Number.EPSILON) * 100) / 100;
+      totalAmount = Math.round((taxableValue + gstAmount + Number.EPSILON) * 100) / 100;
+    }
+
+    return {
+      ...item,
+      quantity,
+      rate,
+      taxableValue,
+      gstRate,
+      gstAmount,
+      totalAmount,
+      taxRate: gstRate,
+      taxAmount: gstAmount,
+      combinedTaxRate: gstRate,
+    };
+  };
+
   const set = (path, value) => {
     setForm((prev) => {
       const parts = path.split(".");
-      if (parts.length === 1) return { ...prev, [path]: value };
-      const updated = { ...prev };
-      let ref = updated;
-      for (let i = 0; i < parts.length - 1; i++) {
-        ref[parts[i]] = { ...ref[parts[i]] };
-        ref = ref[parts[i]];
+      let updated;
+      if (parts.length === 1) {
+        updated = { ...prev, [path]: value };
+      } else {
+        updated = { ...prev };
+        let ref = updated;
+        for (let i = 0; i < parts.length - 1; i++) {
+          ref[parts[i]] = { ...ref[parts[i]] };
+          ref = ref[parts[i]];
+        }
+        ref[parts[parts.length - 1]] = value;
       }
-      ref[parts[parts.length - 1]] = value;
+
+      if ((path === "poDate" || path === "deliveryDate") && updated.paymentTerms === "monthly") {
+        const taxType = determineTaxType();
+        const recalculatedItems = (updated.items || []).map((item) =>
+          calculateItemValues(item, "monthly", updated.poDate, updated.deliveryDate, taxType)
+        );
+        const totals = calculateGstTotals(recalculatedItems);
+        return {
+          ...updated,
+          items: recalculatedItems,
+          ...totals,
+          valueInWords: numberToWords(totals.totalAmount),
+        };
+      }
+
       return updated;
     });
   };
@@ -1078,40 +1168,7 @@ export default function PurchaseOrderPage() {
 
       if (field === "quantity" || field === "rate" || field === "gstRate") {
         const taxType = determineTaxType();
-        const taxableValue = items[idx].quantity * items[idx].rate;
-        items[idx].taxableValue = taxableValue;
-
-        if (taxType === "GST") {
-          // ✅ India→India: use HSN GST rate
-          items[idx].gstAmount = (taxableValue * items[idx].gstRate) / 100;
-          items[idx].totalAmount = taxableValue + items[idx].gstAmount;
-
-        } else if (taxType === "RCM") {
-          // ✅ Foreign→India: RCM — buyer pays tax (record for reference)
-          items[idx].gstAmount = (taxableValue * items[idx].gstRate) / 100;
-          items[idx].totalAmount = taxableValue; // RCM: tax not added to invoice amount
-
-        } else if (taxType === "NONE") {
-          // NONE: Foreign→Foreign
-          items[idx].gstAmount = 0;
-          items[idx].gstRate = 0;
-          items[idx].totalAmount = taxableValue;
-
-        } else {
-          // ✅ India→Foreign (any mapped tax logic: VAT, SALES_TAX, custom)
-          const partyCountry = getPartyCountry();
-          const countryTax = getForeignCountryTax(partyCountry);
-          const taxRate = countryTax ? countryTax.taxRate : 0;
-          items[idx].gstRate = taxRate;
-          items[idx].gstAmount = (taxableValue * taxRate) / 100;
-          items[idx].totalAmount = taxableValue + items[idx].gstAmount;
-        }
-
-        // CRITICAL: Always sync taxRate/taxAmount with gstRate/gstAmount
-        // Backend prioritizes taxRate over gstRate
-        items[idx].taxRate = items[idx].gstRate;
-        items[idx].taxAmount = items[idx].gstAmount;
-        items[idx].combinedTaxRate = items[idx].gstRate;
+        items[idx] = calculateItemValues(items[idx], prev.paymentTerms, prev.poDate, prev.deliveryDate, taxType);
       }
 
       const totals = calculateGstTotals(items);
@@ -1192,6 +1249,7 @@ export default function PurchaseOrderPage() {
         vendor: vendorForBackend,  // Always send the correct party as 'vendor'
         billingModel: { milestone: "milestone", monthly: "fixed", weekly: "fixed" }[form.paymentTerms] || "fixed",
         poCategory: "project",
+        distributionSchedule: form.paymentTerms === "monthly" ? distributionBreakdown : [],
       };
 
       // Remove the client field since backend only expects vendor
@@ -1238,6 +1296,7 @@ export default function PurchaseOrderPage() {
   };
   const getRateLabel = () => {
     if (form.paymentTerms === "weekly") return `Rate/Hour (${currencySymbol})`;
+    if (form.paymentTerms === "monthly") return `Monthly Rate (${currencySymbol})`;
     return `Rate (${currencySymbol})`;
   };
 
@@ -1635,38 +1694,59 @@ export default function PurchaseOrderPage() {
                 {PAYMENT_TERMS_OPTIONS.map(opt => (
                   <button key={opt.key}
                     onClick={() => {
+                      const taxType = determineTaxType();
                       if (opt.key === "milestone") {
                         const count = window.prompt("How many milestones would you like to create?", "3");
                         const numCount = parseInt(count);
                         if (!isNaN(numCount) && numCount > 0) {
-                          const newMilestones = Array.from({ length: numCount }, (_, i) => ({
-                            title: `Milestone ${i + 1}`,
-                            description: "",
-                            amount: Number((form.totalAmount / numCount).toFixed(2)),
-                            percentage: Number((100 / numCount).toFixed(2)),
-                            dueDate: today(),
-                            status: "pending",
-                          }));
-                          const totalPercentSoFar = newMilestones.slice(0, -1).reduce((s, m) => s + m.percentage, 0);
-                          const totalAmountSoFar = newMilestones.slice(0, -1).reduce((s, m) => s + m.amount, 0);
-                          newMilestones[newMilestones.length - 1].percentage = Number((100 - totalPercentSoFar).toFixed(2));
-                          newMilestones[newMilestones.length - 1].amount = Number((form.totalAmount - totalAmountSoFar).toFixed(2));
+                          setForm(prev => {
+                            const recalculatedItems = prev.items.map(item =>
+                              calculateItemValues(item, "milestone", prev.poDate, prev.deliveryDate, taxType)
+                            );
+                            const totals = calculateGstTotals(recalculatedItems);
+                            const currentTotal = totals.totalAmount;
 
-                          setForm(prev => ({
-                            ...prev,
-                            paymentTerms: "milestone",
-                            milestones: newMilestones,   // ✅ Set fresh milestones
-                            invoiceSchedule: [],          // ✅ Clear schedule
-                          }));
+                            const newMilestones = Array.from({ length: numCount }, (_, i) => ({
+                              title: `Milestone ${i + 1}`,
+                              description: "",
+                              amount: Number((currentTotal / numCount).toFixed(2)),
+                              percentage: Number((100 / numCount).toFixed(2)),
+                              dueDate: today(),
+                              status: "pending",
+                            }));
+                            const totalPercentSoFar = newMilestones.slice(0, -1).reduce((s, m) => s + m.percentage, 0);
+                            const totalAmountSoFar = newMilestones.slice(0, -1).reduce((s, m) => s + m.amount, 0);
+                            newMilestones[newMilestones.length - 1].percentage = Number((100 - totalPercentSoFar).toFixed(2));
+                            newMilestones[newMilestones.length - 1].amount = Number((currentTotal - totalAmountSoFar).toFixed(2));
+
+                            return {
+                              ...prev,
+                              paymentTerms: "milestone",
+                              items: recalculatedItems,
+                              ...totals,
+                              valueInWords: numberToWords(totals.totalAmount),
+                              milestones: newMilestones,
+                              invoiceSchedule: [],
+                            };
+                          });
                         }
                       } else {
-                        // Switching away from milestone — clear milestone data
-                        setForm(prev => ({
-                          ...prev,
-                          paymentTerms: opt.key,
-                          milestones: [],        // ✅ Clear milestones when switching to monthly/weekly
-                          invoiceSchedule: [],
-                        }));
+                        // Switching to monthly or weekly
+                        setForm(prev => {
+                          const recalculatedItems = prev.items.map(item =>
+                            calculateItemValues(item, opt.key, prev.poDate, prev.deliveryDate, taxType)
+                          );
+                          const totals = calculateGstTotals(recalculatedItems);
+                          return {
+                            ...prev,
+                            paymentTerms: opt.key,
+                            items: recalculatedItems,
+                            ...totals,
+                            valueInWords: numberToWords(totals.totalAmount),
+                            milestones: [],
+                            invoiceSchedule: [],
+                          };
+                        });
                       }
                     }} className={`p-3 rounded-lg border transition-all text-left ${form.paymentTerms === opt.key ? `${colors.bg} ${colors.border} ring-1 ${colors.ring}` : "bg-white border-slate-200 hover:border-slate-300"}`}>
                     <div className="flex items-start gap-2.5">
@@ -1873,8 +1953,26 @@ export default function PurchaseOrderPage() {
                     {distributionBreakdown.length > 0 && (
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs">
-                          <thead><tr className="border-b border-blue-200"><th className="px-2 py-1.5 text-left font-medium text-blue-900">Month</th><th className="px-2 py-1.5 text-left font-medium text-blue-900">Period</th><th className="px-2 py-1.5 text-right font-medium text-blue-900">{`Amount (${currencySymbol})`}</th></tr></thead>
-                          <tbody>{distributionBreakdown.map((item, idx) => (<tr key={idx} className="border-b border-blue-100 last:border-b-0"><td className="px-2 py-1.5 font-medium text-slate-800">{item.period}</td><td className="px-2 py-1.5 text-slate-600">{item.startDate} – {item.endDate}</td><td className="px-2 py-1.5 text-right font-medium text-slate-800">{formatMoney(item.amount)}</td></tr>))}</tbody>
+                          <thead>
+                            <tr className="border-b border-blue-200">
+                              <th className="px-2 py-1.5 text-left font-medium text-blue-900">Month</th>
+                              <th className="px-2 py-1.5 text-left font-medium text-blue-900">Period</th>
+                              <th className="px-2 py-1.5 text-center font-medium text-blue-900">Days</th>
+                              <th className="px-2 py-1.5 text-right font-medium text-blue-900">{`Rate (${currencySymbol})`}</th>
+                              <th className="px-2 py-1.5 text-right font-medium text-blue-900">{`Amount (${currencySymbol})`}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {distributionBreakdown.map((item, idx) => (
+                              <tr key={idx} className="border-b border-blue-100 last:border-b-0">
+                                <td className="px-2 py-1.5 font-medium text-slate-800">{item.period}</td>
+                                <td className="px-2 py-1.5 text-slate-600">{item.startDate} – {item.endDate}</td>
+                                <td className="px-2 py-1.5 text-center text-slate-600">{item.daysText || `${item.daysInPeriod}/${item.totalDaysInMonth}`}</td>
+                                <td className="px-2 py-1.5 text-right text-slate-600">{formatMoney(item.rate)}</td>
+                                <td className="px-2 py-1.5 text-right font-medium text-slate-800">{formatMoney(item.amount)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
                         </table>
                       </div>
                     )}
@@ -2165,6 +2263,8 @@ export default function PurchaseOrderPage() {
                             <tr className="border-b border-slate-200 bg-slate-100">
                               <th className="px-2 py-1.5 text-left font-medium text-slate-600">Month</th>
                               <th className="px-2 py-1.5 text-left font-medium text-slate-600">Period</th>
+                              <th className="px-2 py-1.5 text-center font-medium text-slate-600">Days</th>
+                              <th className="px-2 py-1.5 text-right font-medium text-slate-600">Rate</th>
                               <th className="px-2 py-1.5 text-right font-medium text-slate-600">Amount</th>
                             </tr>
                           </thead>
@@ -2173,6 +2273,8 @@ export default function PurchaseOrderPage() {
                               <tr key={idx} className="border-b border-slate-200 last:border-b-0">
                                 <td className="px-2 py-1.5 font-medium text-slate-800">{item.period}</td>
                                 <td className="px-2 py-1.5 text-slate-600">{item.startDate} – {item.endDate}</td>
+                                <td className="px-2 py-1.5 text-center text-slate-600">{item.daysText || `${item.daysInPeriod}/${item.totalDaysInMonth}`}</td>
+                                <td className="px-2 py-1.5 text-right text-slate-600">{formatMoney(item.rate)}</td>
                                 <td className="px-2 py-1.5 text-right font-medium text-slate-800">{formatMoney(item.amount)}</td>
                               </tr>
                             ))}
