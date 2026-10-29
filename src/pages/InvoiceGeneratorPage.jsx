@@ -45,6 +45,7 @@ export default function InvoiceGeneratorPage() {
     totalCGSTAmount: 0,
     totalSGSTAmount: 0,
     totalIGSTAmount: 0,
+    poreferencevalue: "",
     withSignature: false,
   });
   const [fullData, setFullData] = useState({
@@ -325,6 +326,8 @@ export default function InvoiceGeneratorPage() {
                 </label>
                 <input
                   name="poreferencevalue"
+                  value={form.poreferencevalue || ""}
+                  onChange={handleChange}
                   className="w-full p-3 border-2 border-neutral-200 rounded-xl bg-white text-neutral-900 focus:outline-none focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200 transition-all"
                   placeholder="Enter PO reference"
                 />

@@ -372,7 +372,7 @@ const HomeInvoiceDetails = ({ open, onClose, invoiceId, refreshInvoices }) => {
 	                    <Card title="PO Linkage" icon={Tag} accent="linear-gradient(180deg,#7c3aed,#a78bfa)">
 	                      <div className="grid grid-cols-2 gap-3">
 	                        <F label="PO Number" value={invoice.linkedPO?.poNumber || invoice.linkedPORef} mono />
-	                        <F label="PO Reference" value={invoice.poreferencevalue} mono />
+	                        <F label="PO Reference" value={invoice.linkedPO?.poreferencevalue || invoice.poreferencevalue} mono />
 	                        <F label="PO Status" value={invoice.poVisibility?.poStatus || invoice.linkedPO?.status} />
 	                        <F
 	                          label="Remaining PO Balance"
