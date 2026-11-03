@@ -295,6 +295,7 @@ export default function NavbarComponent() {
                             ...link.options.filter((option) => !(option.navLink === "/accounting/expense-audit" || option.key === "expense-audit")),
                             { _id: "accounting-expense-audit", name: "Expense Audit", navLink: "/accounting/expense-audit", key: "expense-audit", alwaysShow: true },
                             { _id: "accounting-master-data", name: "Accounting Master Data", navLink: "/accounting/master-data", key: "master-control", alwaysShow: true },
+                            { _id: "accounting-hrms-payroll", name: "HRMS Payroll & Claims", navLink: "/accounting/hrms-payroll", key: "journal", alwaysShow: true },
                           ]
                         : link.options
                       ).map((child, idx) => (
