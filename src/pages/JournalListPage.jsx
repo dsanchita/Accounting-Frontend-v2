@@ -1501,6 +1501,28 @@ const [loadingStats, setLoadingStats] = useState(false);
                                     {line.account?.name || "Unknown Account"} A/c
                                   </div>
                                   {line.account?.code && <div className="text-xs text-gray-500">Code: {line.account.code}</div>}
+                                  {(line.employeeName || line.paymentId) && (
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                                      {line.employeeName && (
+                                        <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-2 py-0.5 font-semibold text-indigo-700 border border-indigo-200">
+                                          👤 {line.employeeName} {line.employeeCode ? `(${line.employeeCode})` : ""}
+                                        </span>
+                                      )}
+                                      {line.paymentId && (
+                                        <span className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-blue-700">
+                                          Payment ID: {line.paymentId}
+                                        </span>
+                                      )}
+                                      {line.employeeDepartment && (
+                                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
+                                          {line.employeeDepartment}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {line.description && !line.employeeName && (
+                                    <div className="mt-1 text-xs text-gray-500 italic">{line.description}</div>
+                                  )}
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-right font-medium text-gray-900">{line.debit > 0 ? `₹${line.debit.toLocaleString()}` : "-"}</td>

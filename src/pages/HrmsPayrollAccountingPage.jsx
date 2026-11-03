@@ -388,11 +388,20 @@ export default function HrmsPayrollAccountingPage() {
           ) : (
             <div className="overflow-x-auto md:col-span-4">
               <table className="w-full min-w-[760px] text-left text-sm">
-                <thead><tr className="border-b text-xs uppercase text-slate-500"><th className="py-2">Employee</th><th>Source</th><th>Original</th><th>Remaining</th><th>Payment now</th></tr></thead>
+                <thead><tr className="border-b text-xs uppercase text-slate-500"><th className="py-2">Employee</th><th>Payment ID</th><th>Source</th><th>Original</th><th>Remaining</th><th>Payment now</th></tr></thead>
                 <tbody>{visiblePayables.map((item) => {
                   const remaining = item.originalAmountMinorUnits - item.settledAmountMinorUnits;
                   return <tr key={item._id} className="border-b last:border-0">
-                    <td className="py-3 font-medium">{item.employeeName}<span className="block text-xs text-slate-500">{item.employeeCode || item.employeeId}</span></td>
+                    <td className="py-3 font-medium">
+                      {item.employeeName}
+                      <span className="block text-xs text-slate-500">{item.employeeCode || item.employeeId}</span>
+                      {item.employeeDepartment && <span className="block text-[11px] text-slate-400">{item.employeeDepartment}</span>}
+                    </td>
+                    <td>
+                      <span className="inline-block rounded border border-blue-200 bg-blue-50 px-2 py-0.5 font-mono text-xs font-semibold text-blue-700">
+                        {item.paymentId || "—"}
+                      </span>
+                    </td>
                     <td>{item.sourceType}: {item.sourceId}</td>
                     <td>{toCurrency(item.originalAmountMinorUnits, item.currency)}</td>
                     <td>{toCurrency(remaining, item.currency)}</td>
