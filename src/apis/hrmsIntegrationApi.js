@@ -26,3 +26,6 @@ export const getHrmsSettlementsApi = (companyId) =>
 
 export const reverseHrmsSettlementApi = (settlementId, payload) =>
   API.post(`/integrations/hrms/settlements/${settlementId}/reversals`, payload);
+
+export const getHrmsClaimsReportApi = (companyId) =>
+  API.get("/integrations/hrms/claims-report", { params: { companyId } });

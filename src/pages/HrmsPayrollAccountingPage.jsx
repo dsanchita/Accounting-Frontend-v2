@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, RefreshCw, Save, Plus, Trash2 } from "lucide-react";
+import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { AlertCircle, RefreshCw, Save, Plus, Trash2, ChevronDown, ChevronUp, FileText, CheckCircle2, Clock, Search } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import {
   createHrmsSettlementApi,
+  getHrmsClaimsReportApi,
   getHrmsEmployeePayableReconciliationApi,
   getHrmsEmployeePayablesApi,
   getHrmsSettlementsApi,
@@ -104,6 +105,9 @@ export default function HrmsPayrollAccountingPage() {
   const [reversalReference, setReversalReference] = useState("");
   const [reversalAllocations, setReversalAllocations] = useState({});
   const [reversalRequests, setReversalRequests] = useState({});
+  const [claimsReport, setClaimsReport] = useState(null);
+  const [claimsSearch, setClaimsSearch] = useState("");
+  const [expandedEmployee, setExpandedEmployee] = useState(null);
   const currency = mappings.currency || "INR";
   const bankAccounts = useMemo(
     () => accounts.filter((account) => account.groupId?.nature === "Asset"),
@@ -129,14 +133,16 @@ export default function HrmsPayrollAccountingPage() {
         payroll: { ...emptyMappings().payroll, ...(saved?.payroll || {}) },
         claims: { ...emptyMappings().claims, ...(saved?.claims || {}) },
       });
-      const [payableResult, reconciliationResult, settlementResult] = await Promise.allSettled([
+      const [payableResult, reconciliationResult, settlementResult, claimsReportResult] = await Promise.allSettled([
         getHrmsEmployeePayablesApi(companyId),
         getHrmsEmployeePayableReconciliationApi(companyId),
         getHrmsSettlementsApi(companyId),
+        getHrmsClaimsReportApi(companyId),
       ]);
       setPayables(payableResult.status === "fulfilled" ? payableResult.value.data?.data || [] : []);
       setReconciliation(reconciliationResult.status === "fulfilled" ? reconciliationResult.value.data?.data || [] : []);
       setSettlements(settlementResult.status === "fulfilled" ? settlementResult.value.data?.data || [] : []);
+      setClaimsReport(claimsReportResult.status === "fulfilled" ? claimsReportResult.value.data?.data || null : null);
       if (!adminData?.config) setError("Save the HRMS ledger mappings before payables can be posted.");
     } catch (requestError) {
       setError(requestError?.response?.data?.message || "Could not load HRMS accounting data");
@@ -151,6 +157,59 @@ export default function HrmsPayrollAccountingPage() {
 
   const updateMapping = (path, value) => {
     setMappings((current) => setPath(structuredClone(current), path, value));
+  };
+
+  const autoPopulateStandardCategories = () => {
+    const tourAcc = accounts.find(
+      (a) =>
+        a.name?.toLowerCase().includes("tour") ||
+        a.name?.toLowerCase().includes("travel") ||
+        a.code === "TOURTRAVELEXP"
+    );
+    const officeAcc = accounts.find(
+      (a) => a.name?.toLowerCase().includes("office") || a.code === "OFFICEEXPENS"
+    );
+    const miscAcc = accounts.find(
+      (a) =>
+        a.name?.toLowerCase().includes("misc") ||
+        a.code === "MISCEXP" ||
+        a.code === "MISCELLANEOUS"
+    );
+
+    const standard = [
+      {
+        categoryId: "69ae6963242d7b93ddc7478d",
+        categoryName: "Travel Allowance",
+        expenseAccountId: tourAcc?._id || "",
+      },
+      {
+        categoryId: "69d39cd417c33ab5608e129c",
+        categoryName: "Food Expenses for travel",
+        expenseAccountId: tourAcc?._id || "",
+      },
+      {
+        categoryId: "69afe3e9d2064e6b3aa80ae3",
+        categoryName: "Shift Allowance",
+        expenseAccountId: officeAcc?._id || "",
+      },
+      {
+        categoryId: "69d391a017c33ab5608e0faf",
+        categoryName: "Recharge of Internet",
+        expenseAccountId: officeAcc?._id || "",
+      },
+      {
+        categoryId: "69afe7cb7a1905fc9e9865e2",
+        categoryName: "Food",
+        expenseAccountId: officeAcc?._id || "",
+      },
+      {
+        categoryId: "69ce2d01c1ea9c95e2c0bb3f",
+        categoryName: "Miscellaneous",
+        expenseAccountId: miscAcc?._id || "",
+      },
+    ];
+
+    updateMapping("claims.categoryMappings", standard);
   };
 
   const saveMappings = async (event) => {
@@ -335,9 +394,17 @@ export default function HrmsPayrollAccountingPage() {
           </section>
 
           <section className="space-y-3 rounded-xl border p-4">
-            <div className="flex items-center justify-between">
-              <div><h3 className="font-semibold">Claim category mappings</h3><p className="text-xs text-slate-500">Enter each HRMS category ID exactly as stored by HRMS.</p></div>
-              <button type="button" onClick={() => updateMapping("claims.categoryMappings", [...(mappings.claims.categoryMappings || []), { categoryId: "", categoryName: "", expenseAccountId: "" }])} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"><Plus size={15} /> Add</button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold">Claim category mappings</h3>
+                <p className="text-xs text-slate-500">Group HRMS claim categories into the 3 expense accounts (Office Expense, Tour & Travel Expenses, Miscellaneous).</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={autoPopulateStandardCategories} className="inline-flex items-center gap-1 rounded-lg border bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                  Auto-fill standard 6 categories
+                </button>
+                <button type="button" onClick={() => updateMapping("claims.categoryMappings", [...(mappings.claims.categoryMappings || []), { categoryId: "", categoryName: "", expenseAccountId: "" }])} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-sm"><Plus size={15} /> Add</button>
+              </div>
             </div>
             {(mappings.claims.categoryMappings || []).map((item, index) => (
               <div key={`${item.categoryId}-${index}`} className="grid gap-3 md:grid-cols-[1fr_1fr_2fr_auto]">
@@ -428,6 +495,234 @@ export default function HrmsPayrollAccountingPage() {
             </tr>)}</tbody>
           </table>
         </div>
+      </section>
+
+      {/* Consolidated Employee Claims Report */}
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold">Consolidated Employee Claims Report</h2>
+            <p className="text-sm text-slate-600">
+              Consolidated view of claims raised by employees, total approved, paid, and outstanding balances.
+            </p>
+          </div>
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search claimant or code..."
+              value={claimsSearch}
+              onChange={(e) => setClaimsSearch(e.target.value)}
+              className="rounded-lg border py-1.5 pl-9 pr-3 text-sm"
+            />
+          </div>
+        </div>
+
+        {/* KPI Cards */}
+        {claimsReport?.summary && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <span className="text-xs text-slate-500">Total Claimants</span>
+              <p className="text-xl font-bold text-slate-800">{claimsReport.summary.totalEmployees}</p>
+            </div>
+            <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+              <span className="text-xs text-blue-700">Total Approved</span>
+              <p className="text-xl font-bold text-blue-800">
+                {toCurrency(claimsReport.summary.totalApprovedMinorUnits, currency)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+              <span className="text-xs text-emerald-700">Total Paid (Settled)</span>
+              <p className="text-xl font-bold text-emerald-800">
+                {toCurrency(claimsReport.summary.totalSettledMinorUnits, currency)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3">
+              <span className="text-xs text-amber-700">Pending Liability</span>
+              <p className="text-xl font-bold text-amber-800">
+                {toCurrency(claimsReport.summary.totalPendingMinorUnits, currency)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Employees Table */}
+        {!claimsReport?.employees || claimsReport.employees.length === 0 ? (
+          <p className="text-sm text-slate-500">No approved claims found in Accounting.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead>
+                <tr className="border-b text-xs uppercase text-slate-500">
+                  <th className="py-2.5">Employee</th>
+                  <th>Claims</th>
+                  <th>Total Approved</th>
+                  <th>Total Paid</th>
+                  <th>Pending Balance</th>
+                  <th>Status</th>
+                  <th className="text-right">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {claimsReport.employees
+                  .filter((emp) => {
+                    if (!claimsSearch.trim()) return true;
+                    const q = claimsSearch.toLowerCase();
+                    return (
+                      emp.employeeName?.toLowerCase().includes(q) ||
+                      emp.employeeCode?.toLowerCase().includes(q) ||
+                      emp.employeeDepartment?.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((emp) => {
+                    const isExpanded = expandedEmployee === emp.employeeId;
+                    const isFullySettled = emp.totalPendingAmountMinorUnits === 0;
+                    const isPartiallySettled =
+                      emp.totalSettledAmountMinorUnits > 0 && emp.totalPendingAmountMinorUnits > 0;
+
+                    return (
+                      <Fragment key={emp.employeeId || emp.employeeName}>
+                        <tr className="border-b last:border-0 hover:bg-slate-50/60">
+                          <td className="py-3 font-medium">
+                            {emp.employeeName}
+                            <span className="block text-xs text-slate-500">
+                              {emp.employeeCode || emp.employeeId || "—"}
+                            </span>
+                            {emp.employeeDepartment && (
+                              <span className="block text-[11px] text-slate-400">
+                                {emp.employeeDepartment}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                              {emp.claimsCount}
+                            </span>
+                          </td>
+                          <td className="font-semibold text-slate-800">
+                            {toCurrency(emp.totalApprovedAmountMinorUnits, currency)}
+                          </td>
+                          <td className="font-semibold text-emerald-700">
+                            {toCurrency(emp.totalSettledAmountMinorUnits, currency)}
+                          </td>
+                          <td
+                            className={`font-semibold ${
+                              emp.totalPendingAmountMinorUnits > 0
+                                ? "text-amber-700"
+                                : "text-slate-400"
+                            }`}
+                          >
+                            {toCurrency(emp.totalPendingAmountMinorUnits, currency)}
+                          </td>
+                          <td>
+                            <span
+                              className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                isFullySettled
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : isPartiallySettled
+                                  ? "bg-blue-100 text-blue-800"
+                                  : "bg-amber-100 text-amber-800"
+                              }`}
+                            >
+                              {isFullySettled ? "Paid" : isPartiallySettled ? "Partial" : "Pending"}
+                            </span>
+                          </td>
+                          <td className="text-right">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedEmployee(isExpanded ? null : emp.employeeId)
+                              }
+                              className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                            >
+                              {isExpanded ? (
+                                <>
+                                  Hide <ChevronUp size={13} />
+                                </>
+                              ) : (
+                                <>
+                                  View Claims ({emp.claims.length}) <ChevronDown size={13} />
+                                </>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Expanded Claim Details Drilldown */}
+                        {isExpanded && (
+                          <tr className="bg-slate-50/70">
+                            <td colSpan={7} className="p-3">
+                              <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
+                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                                  Claims Breakdown for {emp.employeeName}
+                                </h4>
+                                <table className="w-full text-left text-xs">
+                                  <thead>
+                                    <tr className="border-b text-slate-400">
+                                      <th className="py-1">Claim ID / Payment ID</th>
+                                      <th>Posting Date</th>
+                                      <th>Journal #</th>
+                                      <th>Approved Amount</th>
+                                      <th>Settled Amount</th>
+                                      <th>Pending</th>
+                                      <th>Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {emp.claims.map((claim, idx) => (
+                                      <tr key={claim.payableId || idx} className="border-b last:border-0">
+                                        <td className="py-1.5 font-mono text-slate-700">
+                                          {claim.paymentId || claim.claimId}
+                                        </td>
+                                        <td>
+                                          {new Date(claim.postingDate).toLocaleDateString("en-IN")}
+                                        </td>
+                                        <td className="font-mono text-blue-600">
+                                          {claim.journalNumber || "—"}
+                                        </td>
+                                        <td className="font-semibold">
+                                          {toCurrency(claim.originalAmountMinorUnits, currency)}
+                                        </td>
+                                        <td className="text-emerald-700">
+                                          {toCurrency(claim.settledAmountMinorUnits, currency)}
+                                        </td>
+                                        <td
+                                          className={
+                                            claim.remainingAmountMinorUnits > 0
+                                              ? "font-semibold text-amber-700"
+                                              : "text-slate-400"
+                                          }
+                                        >
+                                          {toCurrency(claim.remainingAmountMinorUnits, currency)}
+                                        </td>
+                                        <td>
+                                          <span
+                                            className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                                              claim.status === "SETTLED"
+                                                ? "bg-emerald-100 text-emerald-800"
+                                                : claim.status === "PARTIAL"
+                                                ? "bg-blue-100 text-blue-800"
+                                                : "bg-amber-100 text-amber-800"
+                                            }`}
+                                          >
+                                            {claim.status}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
