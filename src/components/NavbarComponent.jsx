@@ -296,6 +296,7 @@ export default function NavbarComponent() {
                             { _id: "accounting-expense-audit", name: "Expense Audit", navLink: "/accounting/expense-audit", key: "expense-audit", alwaysShow: true },
                             { _id: "accounting-master-data", name: "Accounting Master Data", navLink: "/accounting/master-data", key: "master-control", alwaysShow: true },
                             { _id: "accounting-hrms-payroll", name: "HRMS Payroll & Claims", navLink: "/accounting/hrms-payroll", key: "journal", alwaysShow: true },
+                            { _id: "accounting-executive-dues", name: "Employee Dues & Payments", navLink: "/accounting/employee-dues", key: "journal", alwaysShow: true },
                           ]
                         : link.options
                       ).map((child, idx) => (
@@ -351,6 +352,28 @@ export default function NavbarComponent() {
 
         {user?.role === "superAdmin" && (
           <div className="mb-1">
+             <NavLink
+          to="/executive/employee-dues"
+          className={({ isActive }) =>
+            `group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 mb-1 ${
+              isActive
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30"
+                : "text-gray-400 hover:bg-white/5 hover:text-white"
+            }`
+          }
+          title={isCollapsed ? "Employee Dues & Payments" : ""}
+        >
+          <div
+            className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+              isCollapsed ? "mx-auto" : "group-hover:bg-white/5"
+            }`}
+          >
+            <Wallet strokeWidth={1.5} size={20} className="transition-transform duration-200 group-hover:scale-110" />
+          </div>
+          {!isCollapsed && (
+            <span className="text-sm font-medium flex-1">Employee Dues & Payments</span>
+          )}
+        </NavLink>
              <NavLink
           to="/reports/tax-flow"
           className={({ isActive }) =>

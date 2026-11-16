@@ -58,6 +58,9 @@ const TaxFlowReportPage = lazy(
 const HrmsPayrollAccountingPage = lazy(
   () => import("../pages/HrmsPayrollAccountingPage"),
 );
+const ExecutiveEmployeeDuesPage = lazy(
+  () => import("../pages/ExecutiveEmployeeDuesPage"),
+);
 
 // Already lazy in your code (keeping same)
 const AuthPage = lazy(() => import("../pages/AuthPage"));
@@ -149,7 +152,38 @@ export default function AppRoutes() {
                       : <AccessDenied />
                   }
                 />
+                <Route
+                  path="employee-dues"
+                  element={
+                    user?.role === "admin" ||
+                    user?.role === "superAdmin" ||
+                    hasPermission("JOURNAL", "VIEW")
+                      ? <ExecutiveEmployeeDuesPage />
+                      : <AccessDenied />
+                  }
+                />
               </Route>
+
+              <Route
+                path="executive/employee-dues"
+                element={
+                  user?.role === "admin" ||
+                  user?.role === "superAdmin" ||
+                  hasPermission("JOURNAL", "VIEW")
+                    ? <ExecutiveEmployeeDuesPage />
+                    : <AccessDenied />
+                }
+              />
+              <Route
+                path="superadmin/employee-dues"
+                element={
+                  user?.role === "admin" ||
+                  user?.role === "superAdmin" ||
+                  hasPermission("JOURNAL", "VIEW")
+                    ? <ExecutiveEmployeeDuesPage />
+                    : <AccessDenied />
+                }
+              />
 
               <Route path="master-data">
                 <Route

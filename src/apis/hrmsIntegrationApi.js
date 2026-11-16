@@ -29,3 +29,6 @@ export const reverseHrmsSettlementApi = (settlementId, payload) =>
 
 export const getHrmsClaimsReportApi = (companyId) =>
   API.get("/integrations/hrms/claims-report", { params: { companyId } });
+
+export const getExecutiveEmployeeDuesApi = (params) =>
+  API.get("/integrations/hrms/executive-dues-report", { params });
