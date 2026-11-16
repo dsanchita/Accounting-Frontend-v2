@@ -224,24 +224,24 @@ export default function ExecutiveEmployeeDuesPage() {
   }, [summary]);
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-100 p-4 md:p-8 space-y-6">
+    <div className="space-y-6">
       {/* Top Executive Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-white/10">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-6 bg-white rounded-2xl border border-slate-200 shadow-sm">
         <div>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/20 text-white">
+            <div className="p-2.5 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 shadow-md shadow-blue-500/10 text-white">
               <Wallet className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white">
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
                   Employee Dues & Payments Overview
                 </h1>
-                <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-200">
                   CEO / Executive View
                 </span>
               </div>
-              <p className="text-xs md:text-sm text-slate-400 mt-0.5">
+              <p className="text-xs md:text-sm text-slate-500 mt-0.5">
                 Consolidated tracking of claims and payroll liability, payments disbursed, and outstanding employee balances.
               </p>
             </div>
@@ -253,17 +253,17 @@ export default function ExecutiveEmployeeDuesPage() {
           <button
             onClick={() => fetchReport(true)}
             disabled={loading || refreshing}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 transition-all hover:text-white disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 shadow-sm transition-all disabled:opacity-50"
             title="Refresh Report"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-blue-400" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-blue-600" : "text-slate-500"}`} />
             <span>{refreshing ? "Refreshing..." : "Refresh"}</span>
           </button>
 
           <button
             onClick={handleExportCSV}
             disabled={!employees.length}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-lg shadow-blue-600/30 transition-all disabled:opacity-50 disabled:pointer-events-none"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm shadow-blue-600/20 transition-all disabled:opacity-50 disabled:pointer-events-none"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export CSV</span>
@@ -272,12 +272,12 @@ export default function ExecutiveEmployeeDuesPage() {
       </div>
 
       {/* Filter and Date Selection Panel */}
-      <div className="bg-[#111827]/80 backdrop-blur-md border border-white/10 rounded-2xl p-4 md:p-5 space-y-4 shadow-xl">
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 md:p-5 space-y-4 shadow-sm">
         {/* Presets and Date Controls */}
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-medium text-slate-400 mr-2 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-blue-400" /> Date Preset:
+            <span className="text-xs font-semibold text-slate-500 mr-2 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-blue-600" /> Date Preset:
             </span>
             {[
               { id: "all", label: "All Time" },
@@ -290,10 +290,10 @@ export default function ExecutiveEmployeeDuesPage() {
               <button
                 key={p.id}
                 onClick={() => handlePresetChange(p.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                   datePreset === p.id
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold"
-                    : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-800"
                 }`}
               >
                 {p.label}
@@ -303,7 +303,7 @@ export default function ExecutiveEmployeeDuesPage() {
 
           {/* Date Picker Range Inputs */}
           <div className="flex items-center gap-2 w-full lg:w-auto">
-            <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-slate-200">
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700">
               <span className="text-slate-500 font-medium">From:</span>
               <input
                 type="date"
@@ -312,10 +312,10 @@ export default function ExecutiveEmployeeDuesPage() {
                   setStartDate(e.target.value);
                   setDatePreset("custom");
                 }}
-                className="bg-transparent text-white text-xs outline-none cursor-pointer"
+                className="bg-transparent text-slate-800 text-xs outline-none cursor-pointer font-medium"
               />
             </div>
-            <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-slate-200">
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700">
               <span className="text-slate-500 font-medium">To:</span>
               <input
                 type="date"
@@ -324,7 +324,7 @@ export default function ExecutiveEmployeeDuesPage() {
                   setEndDate(e.target.value);
                   setDatePreset("custom");
                 }}
-                className="bg-transparent text-white text-xs outline-none cursor-pointer"
+                className="bg-transparent text-slate-800 text-xs outline-none cursor-pointer font-medium"
               />
             </div>
             {(startDate || endDate) && (
@@ -334,7 +334,7 @@ export default function ExecutiveEmployeeDuesPage() {
                   setEndDate("");
                   setDatePreset("all");
                 }}
-                className="text-xs text-slate-400 hover:text-rose-400 px-2 py-1"
+                className="text-xs text-slate-500 hover:text-rose-600 font-semibold px-2 py-1 transition-colors"
                 title="Clear date range"
               >
                 Reset
@@ -344,7 +344,7 @@ export default function ExecutiveEmployeeDuesPage() {
         </div>
 
         {/* Secondary Filters Bar: Search, Type, Status, Department */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-white/5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-slate-100">
           {/* Search Input */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -353,52 +353,52 @@ export default function ExecutiveEmployeeDuesPage() {
               placeholder="Search employee name or code..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-black/30 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/60 transition-all"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
             />
           </div>
 
           {/* Type Filter */}
-          <div className="flex items-center gap-2 bg-black/30 border border-white/10 rounded-xl px-3 py-1.5">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus-within:bg-white focus-within:border-blue-500 transition-all">
             <Receipt className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span className="text-[11px] text-slate-400 shrink-0">Type:</span>
+            <span className="text-[11px] font-medium text-slate-500 shrink-0">Type:</span>
             <select
               value={sourceType}
               onChange={(e) => setSourceType(e.target.value)}
-              className="w-full bg-transparent text-xs text-slate-200 outline-none cursor-pointer"
+              className="w-full bg-transparent text-xs text-slate-700 outline-none cursor-pointer font-medium"
             >
-              <option value="ALL" className="bg-[#1e293b]">All Types (Payroll & Claims)</option>
-              <option value="PAYROLL" className="bg-[#1e293b]">Payroll Only</option>
-              <option value="CLAIM" className="bg-[#1e293b]">Claims Only</option>
+              <option value="ALL">All Types (Payroll & Claims)</option>
+              <option value="PAYROLL">Payroll Only</option>
+              <option value="CLAIM">Claims Only</option>
             </select>
           </div>
 
           {/* Status Filter */}
-          <div className="flex items-center gap-2 bg-black/30 border border-white/10 rounded-xl px-3 py-1.5">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus-within:bg-white focus-within:border-blue-500 transition-all">
             <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span className="text-[11px] text-slate-400 shrink-0">Status:</span>
+            <span className="text-[11px] font-medium text-slate-500 shrink-0">Status:</span>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full bg-transparent text-xs text-slate-200 outline-none cursor-pointer"
+              className="w-full bg-transparent text-xs text-slate-700 outline-none cursor-pointer font-medium"
             >
-              <option value="ALL" className="bg-[#1e293b]">All Statuses</option>
-              <option value="PENDING" className="bg-[#1e293b]">Pending Dues Only</option>
-              <option value="SETTLED" className="bg-[#1e293b]">Fully Paid Only</option>
+              <option value="ALL">All Statuses</option>
+              <option value="PENDING">Pending Dues Only</option>
+              <option value="SETTLED">Fully Paid Only</option>
             </select>
           </div>
 
           {/* Department Filter */}
-          <div className="flex items-center gap-2 bg-black/30 border border-white/10 rounded-xl px-3 py-1.5">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus-within:bg-white focus-within:border-blue-500 transition-all">
             <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <span className="text-[11px] text-slate-400 shrink-0">Dept:</span>
+            <span className="text-[11px] font-medium text-slate-500 shrink-0">Dept:</span>
             <select
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
-              className="w-full bg-transparent text-xs text-slate-200 outline-none cursor-pointer"
+              className="w-full bg-transparent text-xs text-slate-700 outline-none cursor-pointer font-medium"
             >
-              <option value="ALL" className="bg-[#1e293b]">All Departments</option>
+              <option value="ALL">All Departments</option>
               {departments.map((dept) => (
-                <option key={dept} value={dept} className="bg-[#1e293b]">
+                <option key={dept} value={dept}>
                   {dept}
                 </option>
               ))}
@@ -409,8 +409,8 @@ export default function ExecutiveEmployeeDuesPage() {
 
       {/* Error Alert */}
       {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
           <span>{error}</span>
         </div>
       )}
@@ -418,79 +418,79 @@ export default function ExecutiveEmployeeDuesPage() {
       {/* Top Executive KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Total Accrued Due */}
-        <div className="bg-[#111827]/80 backdrop-blur-md border border-white/10 rounded-2xl p-5 space-y-2 relative overflow-hidden group hover:border-blue-500/40 transition-all">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-2 relative overflow-hidden group hover:border-blue-300 transition-all shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               Total Accrued Dues
             </span>
-            <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
+            <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold tracking-tight text-white">
+          <div className="text-2xl font-black tracking-tight text-slate-900 tabular-nums">
             {formatINR(summary?.totalDueMinorUnits)}
           </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-white/5">
+          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
             <span>Payroll: {formatINR(summary?.payroll?.dueMinorUnits)}</span>
             <span>Claims: {formatINR(summary?.claims?.dueMinorUnits)}</span>
           </div>
         </div>
 
         {/* Card 2: Total Paid Disbursed */}
-        <div className="bg-[#111827]/80 backdrop-blur-md border border-white/10 rounded-2xl p-5 space-y-2 relative overflow-hidden group hover:border-emerald-500/40 transition-all">
+        <div className="bg-white border border-emerald-200/80 rounded-2xl p-5 space-y-2 relative overflow-hidden group hover:border-emerald-300 transition-all shadow-sm bg-gradient-to-br from-white to-emerald-50/30">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">
               Total Amount Paid
             </span>
-            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold tracking-tight text-emerald-400">
+          <div className="text-2xl font-black tracking-tight text-emerald-600 tabular-nums">
             {formatINR(summary?.totalPaidMinorUnits)}
           </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-white/5">
+          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
             <span>Settlement Rate: {settlementProgress}%</span>
-            <span className="text-emerald-400 font-medium">Disbursed</span>
+            <span className="text-emerald-700 font-semibold">Disbursed</span>
           </div>
         </div>
 
         {/* Card 3: Net Outstanding Balance */}
-        <div className="bg-[#111827]/80 backdrop-blur-md border border-amber-500/30 rounded-2xl p-5 space-y-2 relative overflow-hidden group hover:border-amber-500/50 transition-all bg-gradient-to-br from-[#111827] to-amber-950/20">
+        <div className="bg-white border border-amber-200/80 rounded-2xl p-5 space-y-2 relative overflow-hidden group hover:border-amber-300 transition-all shadow-sm bg-gradient-to-br from-white to-amber-50/40">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-xs font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-amber-600" />
               Net Pending Due
             </span>
-            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-300">
+            <div className="p-2 rounded-xl bg-amber-100/70 text-amber-700">
               <AlertCircle className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold tracking-tight text-amber-300">
+          <div className="text-2xl font-black tracking-tight text-amber-700 tabular-nums">
             {formatINR(summary?.totalPendingMinorUnits)}
           </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-white/5">
+          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
             <span>Payroll Pending: {formatINR(summary?.payroll?.pendingMinorUnits)}</span>
             <span>Claims: {formatINR(summary?.claims?.pendingMinorUnits)}</span>
           </div>
         </div>
 
         {/* Card 4: Employees Overview */}
-        <div className="bg-[#111827]/80 backdrop-blur-md border border-white/10 rounded-2xl p-5 space-y-2 relative overflow-hidden group hover:border-indigo-500/40 transition-all">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-2 relative overflow-hidden group hover:border-indigo-300 transition-all shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               Employees Overview
             </span>
-            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+            <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold tracking-tight text-white">
-            {summary?.totalEmployees || 0} <span className="text-xs font-normal text-slate-400">Employees</span>
+          <div className="text-2xl font-black tracking-tight text-slate-900">
+            {summary?.totalEmployees || 0} <span className="text-xs font-medium text-slate-500">Employees</span>
           </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-white/5">
+          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-100">
             <span>Active records found</span>
-            <span className="text-blue-400">
+            <span className="text-blue-600 font-semibold">
               {employees.filter((e) => e.totalPendingMinorUnits > 0).length} with pending dues
             </span>
           </div>
@@ -499,24 +499,24 @@ export default function ExecutiveEmployeeDuesPage() {
 
       {/* Progress Bar Widget */}
       {summary?.totalDueMinorUnits > 0 && (
-        <div className="bg-[#111827]/80 backdrop-blur-md border border-white/10 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
+            <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-xs font-semibold text-white">
+              <div className="text-xs font-bold text-slate-900">
                 Disbursement Progress ({settlementProgress}% Settled)
               </div>
-              <div className="text-[11px] text-slate-400">
+              <div className="text-[11px] text-slate-500">
                 {formatINR(summary.totalPaidMinorUnits)} disbursed of {formatINR(summary.totalDueMinorUnits)} total liability
               </div>
             </div>
           </div>
           <div className="w-full md:w-1/2">
-            <div className="w-full h-2.5 bg-black/40 rounded-full overflow-hidden border border-white/10">
+            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/60">
               <div
-                className="h-full bg-gradient-to-r from-blue-600 via-indigo-500 to-emerald-500 rounded-full transition-all duration-500"
+                className="h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500 rounded-full transition-all duration-500"
                 style={{ width: `${settlementProgress}%` }}
               />
             </div>
@@ -525,18 +525,18 @@ export default function ExecutiveEmployeeDuesPage() {
       )}
 
       {/* Employee List Section */}
-      <div className="bg-[#111827]/80 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         {/* Table / List Header */}
-        <div className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 bg-white/[0.02]">
+        <div className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60">
           <div>
-            <h2 className="text-sm md:text-base font-semibold text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-400" />
+            <h2 className="text-sm md:text-base font-bold text-slate-900 flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-600" />
               Employee Dues Breakdown
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/10 text-slate-300">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
                 {employees.length}
               </span>
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-500 mt-0.5">
               Click on any employee to expand individual approved claims and payroll runs.
             </p>
           </div>
@@ -545,13 +545,13 @@ export default function ExecutiveEmployeeDuesPage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={expandAll}
-                className="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 transition-all"
+                className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm transition-all"
               >
                 Expand All
               </button>
               <button
                 onClick={collapseAll}
-                className="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 transition-all"
+                className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm transition-all"
               >
                 Collapse All
               </button>
@@ -562,23 +562,23 @@ export default function ExecutiveEmployeeDuesPage() {
         {/* Loading State */}
         {loading ? (
           <div className="p-12 flex flex-col items-center justify-center space-y-3">
-            <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
-            <p className="text-xs text-slate-400 font-medium">Loading employee records...</p>
+            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <p className="text-xs text-slate-500 font-medium">Loading employee records...</p>
           </div>
         ) : employees.length === 0 ? (
           /* Empty State */
           <div className="p-12 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto text-slate-400">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center mx-auto text-slate-400">
               <Users className="w-6 h-6" />
             </div>
-            <div className="text-sm font-semibold text-slate-200">No Employee Records Found</div>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+            <div className="text-sm font-bold text-slate-800">No Employee Records Found</div>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
               No payroll or claim payables matched your selected filter criteria. Try adjusting the date range or clear search filters.
             </p>
           </div>
         ) : (
           /* Employee Records List */
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-slate-100">
             {employees.map((emp) => {
               const empKey = emp.employeeId || emp.employeeName;
               const isExpanded = !!expandedEmployees[empKey];
@@ -587,7 +587,7 @@ export default function ExecutiveEmployeeDuesPage() {
               const hasPayroll = emp.payroll?.count > 0;
 
               return (
-                <div key={empKey} className="transition-colors hover:bg-white/[0.02]">
+                <div key={empKey} className="transition-colors hover:bg-slate-50/70">
                   {/* Summary Row / Bar */}
                   <div
                     onClick={() => toggleEmployeeExpand(empKey)}
@@ -595,24 +595,24 @@ export default function ExecutiveEmployeeDuesPage() {
                   >
                     {/* Left: Employee Identity */}
                     <div className="flex items-center gap-3.5 min-w-[240px]">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-slate-800 to-slate-700 border border-white/10 flex items-center justify-center font-bold text-sm text-blue-400 shadow-md">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-100 to-indigo-100 border border-blue-200 flex items-center justify-center font-bold text-sm text-blue-700 shadow-sm">
                         {emp.employeeName?.charAt(0)?.toUpperCase() || "E"}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm text-white">
+                          <span className="font-bold text-sm text-slate-900">
                             {emp.employeeName}
                           </span>
                           {emp.employeeCode && (
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10">
+                            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
                               #{emp.employeeCode}
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
                           {emp.employeeDepartment && (
-                            <span className="flex items-center gap-1">
-                              <Building2 className="w-3 h-3 text-slate-500" />
+                            <span className="flex items-center gap-1 font-medium">
+                              <Building2 className="w-3 h-3 text-slate-400" />
                               {emp.employeeDepartment}
                             </span>
                           )}
@@ -629,12 +629,12 @@ export default function ExecutiveEmployeeDuesPage() {
                     {/* Middle: Breakdown badges */}
                     <div className="flex items-center gap-2 flex-wrap text-xs">
                       {hasPayroll && (
-                        <span className="px-2.5 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[11px] font-medium">
+                        <span className="px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-[11px] font-semibold">
                           Payroll: {formatINR(emp.payroll?.dueMinorUnits)} ({emp.payroll?.count})
                         </span>
                       )}
                       {hasClaims && (
-                        <span className="px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] font-medium">
+                        <span className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-semibold">
                           Claims: {formatINR(emp.claims?.dueMinorUnits)} ({emp.claims?.count})
                         </span>
                       )}
@@ -643,24 +643,24 @@ export default function ExecutiveEmployeeDuesPage() {
                     {/* Right: Amounts & Pending Status */}
                     <div className="flex items-center justify-between lg:justify-end gap-6">
                       <div className="text-right">
-                        <div className="text-xs text-slate-400">Total Accrued</div>
-                        <div className="text-sm font-semibold text-white">
+                        <div className="text-xs text-slate-500 font-medium">Total Accrued</div>
+                        <div className="text-sm font-bold text-slate-900 tabular-nums">
                           {formatINR(emp.totalDueMinorUnits)}
                         </div>
                       </div>
 
                       <div className="text-right">
-                        <div className="text-xs text-slate-400">Total Paid</div>
-                        <div className="text-sm font-semibold text-emerald-400">
+                        <div className="text-xs text-slate-500 font-medium">Total Paid</div>
+                        <div className="text-sm font-bold text-emerald-600 tabular-nums">
                           {formatINR(emp.totalPaidMinorUnits)}
                         </div>
                       </div>
 
                       <div className="text-right min-w-[120px]">
-                        <div className="text-xs text-slate-400">Pending Balance</div>
+                        <div className="text-xs text-slate-500 font-medium">Pending Balance</div>
                         <div
-                          className={`text-sm font-bold ${
-                            emp.totalPendingMinorUnits > 0 ? "text-amber-400" : "text-emerald-400"
+                          className={`text-sm font-black tabular-nums ${
+                            emp.totalPendingMinorUnits > 0 ? "text-amber-700" : "text-emerald-700"
                           }`}
                         >
                           {formatINR(emp.totalPendingMinorUnits)}
@@ -670,20 +670,20 @@ export default function ExecutiveEmployeeDuesPage() {
                       {/* Status Badge */}
                       <div className="shrink-0">
                         {isFullyPaid ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <Check className="w-3 h-3" /> Paid
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                             <Clock className="w-3 h-3" /> Pending
                           </span>
                         )}
                       </div>
 
                       {/* Chevron Toggle */}
-                      <div className="p-1 rounded-lg bg-white/5 text-slate-400">
+                      <div className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm">
                         {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-blue-400" />
+                          <ChevronUp className="w-4 h-4 text-blue-600" />
                         ) : (
                           <ChevronDown className="w-4 h-4" />
                         )}
@@ -699,19 +699,19 @@ export default function ExecutiveEmployeeDuesPage() {
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="bg-black/30 border-t border-white/5 p-4 md:p-6"
+                        className="bg-slate-50/70 border-t border-slate-200 p-4 md:p-6"
                       >
                         <div className="space-y-3">
-                          <div className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                          <div className="text-xs font-bold text-slate-800 flex items-center justify-between">
                             <span>Itemized Records for {emp.employeeName}</span>
-                            <span className="text-slate-500 text-[11px]">
+                            <span className="text-slate-500 text-[11px] font-medium">
                               Total items: {emp.items?.length || 0}
                             </span>
                           </div>
 
-                          <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0f172a]/60">
+                          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
                             <table className="w-full text-left text-xs">
-                              <thead className="bg-white/5 text-slate-400 uppercase text-[10px] tracking-wider border-b border-white/10">
+                              <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
                                 <tr>
                                   <th className="px-4 py-3">Type</th>
                                   <th className="px-4 py-3">Reference / ID</th>
@@ -724,74 +724,74 @@ export default function ExecutiveEmployeeDuesPage() {
                                   <th className="px-4 py-3 text-center">Status</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-white/5 text-slate-300">
+                              <tbody className="divide-y divide-slate-100 text-slate-700">
                                 {(emp.items || []).map((item, idx) => {
                                   const isItemPaid = item.status === "SETTLED" || item.pendingAmountMinorUnits === 0;
                                   return (
                                     <tr
                                       key={item.payableId || idx}
-                                      className="hover:bg-white/[0.02] transition-colors"
+                                      className="hover:bg-slate-50/70 transition-colors"
                                     >
                                       {/* Type Badge */}
-                                      <td className="px-4 py-3 font-medium">
+                                      <td className="px-4 py-3 font-semibold">
                                         {item.sourceType === "CLAIM" ? (
-                                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
                                             Claim
                                           </span>
                                         ) : (
-                                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                                             Payroll
                                           </span>
                                         )}
                                       </td>
 
                                       {/* Reference ID */}
-                                      <td className="px-4 py-3 font-mono text-slate-200">
+                                      <td className="px-4 py-3 font-mono text-slate-700 font-medium">
                                         {item.paymentId || item.sourceId}
                                       </td>
 
                                       {/* Description */}
-                                      <td className="px-4 py-3 text-slate-400 max-w-xs truncate" title={item.narration}>
+                                      <td className="px-4 py-3 text-slate-600 max-w-xs truncate" title={item.narration}>
                                         {item.narration || (item.sourceType === "CLAIM" ? "Approved Claim" : "Payroll Accrual")}
                                       </td>
 
                                       {/* Posting Date */}
-                                      <td className="px-4 py-3 text-slate-400">
+                                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                                         {formatDate(item.postingDate)}
                                       </td>
 
                                       {/* Journal Voucher */}
-                                      <td className="px-4 py-3 font-mono text-xs text-blue-400">
+                                      <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">
                                         {item.journalNumber || "—"}
                                       </td>
 
                                       {/* Accrued Due */}
-                                      <td className="px-4 py-3 text-right font-semibold text-white">
+                                      <td className="px-4 py-3 text-right font-bold text-slate-900 tabular-nums">
                                         {formatINR(item.originalAmountMinorUnits)}
                                       </td>
 
                                       {/* Amount Paid */}
-                                      <td className="px-4 py-3 text-right font-semibold text-emerald-400">
+                                      <td className="px-4 py-3 text-right font-bold text-emerald-600 tabular-nums">
                                         {formatINR(item.settledAmountMinorUnits)}
                                       </td>
 
                                       {/* Remaining Due */}
-                                      <td className="px-4 py-3 text-right font-bold text-amber-400">
+                                      <td className="px-4 py-3 text-right font-black text-amber-700 tabular-nums">
                                         {formatINR(item.pendingAmountMinorUnits)}
                                       </td>
 
                                       {/* Status */}
                                       <td className="px-4 py-3 text-center">
                                         {isItemPaid ? (
-                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                             Paid
                                           </span>
                                         ) : item.status === "PARTIAL" ? (
-                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/20 text-indigo-300">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                                             Partial
                                           </span>
                                         ) : (
-                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                                             Pending
                                           </span>
                                         )}
