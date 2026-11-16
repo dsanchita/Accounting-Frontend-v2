@@ -65,6 +65,29 @@ const getReconciliationUi = (entry) => {
   };
 };
 
+const formatEntryDate = (dateValue) => {
+  if (!dateValue) return "—";
+  if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim())) {
+    const [y, m, d] = dateValue.trim().split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    return dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  }
+  const d = new Date(dateValue);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+};
+
+const formatEntryTime = (dateValue) => {
+  if (!dateValue) return null;
+  const d = new Date(dateValue);
+  if (isNaN(d.getTime())) return null;
+  if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim())) return null;
+  if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0) {
+    return null;
+  }
+  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+};
+
 const EntryRow = ({ entry, type, onOpenJournal, isMatch, showReconciliation }) => (
   <>
     {entry.counters?.map((counter, ci) => (
@@ -86,11 +109,13 @@ const EntryRow = ({ entry, type, onOpenJournal, isMatch, showReconciliation }) =
         {/* Date */}
         <td className="px-4 py-3 whitespace-nowrap align-top">
           <div className={`text-[11px] font-bold ${reconciliationUi?.dateClass || "text-slate-700"}`}>
-            {new Date(entry.date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+            {formatEntryDate(entry.date)}
           </div>
-          <div className={`text-[10px] font-mono ${reconciliationUi?.timeClass || "text-slate-400"}`}>
-            {new Date(entry.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-          </div>
+          {formatEntryTime(entry.createdAt) ? (
+            <div className={`text-[10px] font-mono ${reconciliationUi?.timeClass || "text-slate-400"}`}>
+              {formatEntryTime(entry.createdAt)}
+            </div>
+          ) : null}
         </td>
 
         {/* Particulars */}

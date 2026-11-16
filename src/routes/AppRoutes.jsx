@@ -55,6 +55,12 @@ const BulkInvoiceUploadPage = lazy(
 const TaxFlowReportPage = lazy(
   () => import("../pages/TaxFlowReportPage"),
 );
+const HrmsPayrollAccountingPage = lazy(
+  () => import("../pages/HrmsPayrollAccountingPage"),
+);
+const ExecutiveEmployeeDuesPage = lazy(
+  () => import("../pages/ExecutiveEmployeeDuesPage"),
+);
 
 // Already lazy in your code (keeping same)
 const AuthPage = lazy(() => import("../pages/AuthPage"));
@@ -136,7 +142,48 @@ export default function AppRoutes() {
                 />
                 <Route path="day-books" element={<DayBooks />} />
                 <Route path="master-data" element={<AccountingMasterDataPage />} />
+                <Route
+                  path="hrms-payroll"
+                  element={
+                    user?.role === "admin" ||
+                    user?.role === "superAdmin" ||
+                    hasPermission("JOURNAL", "VIEW")
+                      ? <HrmsPayrollAccountingPage />
+                      : <AccessDenied />
+                  }
+                />
+                <Route
+                  path="employee-dues"
+                  element={
+                    user?.role === "admin" ||
+                    user?.role === "superAdmin" ||
+                    hasPermission("JOURNAL", "VIEW")
+                      ? <ExecutiveEmployeeDuesPage />
+                      : <AccessDenied />
+                  }
+                />
               </Route>
+
+              <Route
+                path="executive/employee-dues"
+                element={
+                  user?.role === "admin" ||
+                  user?.role === "superAdmin" ||
+                  hasPermission("JOURNAL", "VIEW")
+                    ? <ExecutiveEmployeeDuesPage />
+                    : <AccessDenied />
+                }
+              />
+              <Route
+                path="superadmin/employee-dues"
+                element={
+                  user?.role === "admin" ||
+                  user?.role === "superAdmin" ||
+                  hasPermission("JOURNAL", "VIEW")
+                    ? <ExecutiveEmployeeDuesPage />
+                    : <AccessDenied />
+                }
+              />
 
               <Route path="master-data">
                 <Route

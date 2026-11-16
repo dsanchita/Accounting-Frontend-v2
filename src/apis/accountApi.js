@@ -60,6 +60,27 @@ const inferClosingType = (closingBalance, normalBalance = "Debit") => {
   return isNormalSide ? "Dr" : "Cr";
 };
 
+const extractTimestampFromJournal = (journalNumber) => {
+  if (!journalNumber) return null;
+  const match = String(journalNumber).match(/^HRMS-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/i);
+  if (match) {
+    const [, y, m, d, h, min, s] = match;
+    return `${y}-${m}-${d}T${h}:${min}:${s}.000Z`;
+  }
+  return null;
+};
+
+const hasExplicitTime = (dateValue) => {
+  if (!dateValue) return false;
+  const d = new Date(dateValue);
+  if (isNaN(d.getTime())) return false;
+  if (typeof dateValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim())) return false;
+  if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0) {
+    return false;
+  }
+  return true;
+};
+
 const toLegacyLedgerData = (report = {}) => {
   const openingType = report?.account?.normalBalance || "Debit";
   const closingBalance = Number(report?.summary?.closingBalance || 0);
@@ -72,33 +93,54 @@ const toLegacyLedgerData = (report = {}) => {
     openingType,
     closingBalance: Math.abs(closingBalance),
     closingType: inferClosingType(closingBalance, openingType),
-    entries: transactions.map((transaction, index) => ({
-      id: `${transaction.journalNumber || "txn"}-${index}`,
-      date: transaction.journalDate,
-      createdAt: transaction.journalDate,
-      debit: Number(transaction.debit || 0),
-      credit: Number(transaction.credit || 0),
-      sourceType: transaction.voucherType || "Journal Entry",
-      referenceNumber: transaction.journalNumber || "",
-      narration: transaction.narration || "",
-      externalDocNo: transaction.reference || "",
-      partyName: report?.party?.name || "",
-      counters: [
-        {
-          account:
-            transaction.reference ||
-            transaction.narration ||
-            transaction.voucherType ||
-            "Journal Entry",
-          debit: Number(transaction.credit || 0),
-          credit: Number(transaction.debit || 0),
-        },
-      ],
-      reconciliationStatus: isBankLedger ? (transaction.reconciliationStatus || "UNMATCHED") : null,
-      isReconciled: isBankLedger ? Boolean(transaction.isReconciled) : false,
-      allocatedAmount: isBankLedger ? Number(transaction.allocatedAmount || 0) : 0,
-      unreconciledAmount: isBankLedger ? Number(transaction.unreconciledAmount || 0) : 0,
-    })),
+    entries: transactions.map((transaction, index) => {
+      const extractedTime = extractTimestampFromJournal(transaction.journalNumber);
+      const rawCreatedAt = transaction.createdAt || transaction.created_at || extractedTime || null;
+      let entryDate = transaction.journalDate || transaction.date;
+
+      if (rawCreatedAt && entryDate) {
+        const dJournal = new Date(entryDate);
+        const dCreated = new Date(rawCreatedAt);
+        if (!isNaN(dJournal.getTime()) && !isNaN(dCreated.getTime())) {
+          if (dJournal > dCreated && dJournal > new Date()) {
+            entryDate = rawCreatedAt;
+          }
+        }
+      } else if (!entryDate && rawCreatedAt) {
+        entryDate = rawCreatedAt;
+      }
+
+      const isObjectId = (val) => typeof val === "string" && /^[0-9a-fA-F]{24}$/.test(val.trim());
+      const counterAccount =
+        (!isObjectId(transaction.reference) && transaction.reference) ||
+        transaction.narration ||
+        transaction.voucherType ||
+        "Journal Entry";
+
+      return {
+        id: `${transaction.journalNumber || "txn"}-${index}`,
+        date: entryDate,
+        createdAt: hasExplicitTime(rawCreatedAt) ? rawCreatedAt : null,
+        debit: Number(transaction.debit || 0),
+        credit: Number(transaction.credit || 0),
+        sourceType: transaction.voucherType || "Journal Entry",
+        referenceNumber: transaction.journalNumber || "",
+        narration: transaction.narration || "",
+        externalDocNo: transaction.reference || "",
+        partyName: report?.party?.name || "",
+        counters: [
+          {
+            account: counterAccount,
+            debit: Number(transaction.credit || 0),
+            credit: Number(transaction.debit || 0),
+          },
+        ],
+        reconciliationStatus: isBankLedger ? (transaction.reconciliationStatus || "UNMATCHED") : null,
+        isReconciled: isBankLedger ? Boolean(transaction.isReconciled) : false,
+        allocatedAmount: isBankLedger ? Number(transaction.allocatedAmount || 0) : 0,
+        unreconciledAmount: isBankLedger ? Number(transaction.unreconciledAmount || 0) : 0,
+      };
+    }),
   };
 };
 
