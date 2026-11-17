@@ -24,7 +24,11 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../contexts/AuthContext";
-import { getExecutiveEmployeeDuesApi } from "../apis/hrmsIntegrationApi";
+import {
+  getExecutiveEmployeeDuesApi,
+  createHrmsSettlementApi,
+  getHrmsIntegrationCompanyDataApi,
+} from "../apis/hrmsIntegrationApi";
 
 const formatINR = (minorUnits, currency = "INR") => {
   const value = (minorUnits || 0) / 100;
@@ -51,8 +55,9 @@ const formatDate = (dateString) => {
 };
 
 export default function ExecutiveEmployeeDuesPage() {
-  const { user } = useAuth();
-  const companyId = user?.company?._id;
+  const { user, company } = useAuth();
+  const companyId =
+    company?._id || user?.company?._id || JSON.parse(localStorage.getItem("selectedCompany") || "{}")._id;
 
   // Filter States
   const [datePreset, setDatePreset] = useState("all");
@@ -71,6 +76,22 @@ export default function ExecutiveEmployeeDuesPage() {
 
   // UI state for expandable employee cards
   const [expandedEmployees, setExpandedEmployees] = useState({});
+
+  // Bank accounts & Payment Dialog State
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [defaultBankId, setDefaultBankId] = useState("");
+  const [paymentModal, setPaymentModal] = useState({
+    isOpen: false,
+    item: null,
+    employee: null,
+    bankAccountId: "",
+    paymentReference: "",
+    paymentDate: new Date().toISOString().slice(0, 10),
+    notes: "",
+    loading: false,
+    error: null,
+    success: null,
+  });
 
   // Preset Date Handlers
   const handlePresetChange = (preset) => {
@@ -162,6 +183,101 @@ export default function ExecutiveEmployeeDuesPage() {
 
   const collapseAll = () => {
     setExpandedEmployees({});
+  };
+
+  // Load configured company bank accounts for payments
+  useEffect(() => {
+    if (!companyId) return;
+    getHrmsIntegrationCompanyDataApi(companyId)
+      .then((res) => {
+        const data = res?.data?.data;
+        if (data?.accounts) {
+          const bankIds = new Set(data?.config?.bankAccountIds || []);
+          const activeBanks = data.accounts.filter(
+            (acc) =>
+              bankIds.has(acc._id) ||
+              acc.groupId?.nature === "Asset" ||
+              acc.groupName?.toLowerCase().includes("bank")
+          );
+          setBankAccounts(activeBanks.length > 0 ? activeBanks : data.accounts);
+          const firstConfigured = data.accounts.find((acc) => bankIds.has(acc._id))?._id;
+          setDefaultBankId(firstConfigured || activeBanks[0]?._id || "");
+        }
+      })
+      .catch((err) => console.warn("Could not load company bank accounts:", err));
+  }, [companyId]);
+
+  // Open Payment Confirmation Dialog
+  const handleOpenPayModal = (item, emp) => {
+    const defaultRef = `${item.sourceType === "CLAIM" ? "CLAIM" : "SALARY"}-${new Date().toISOString().slice(0, 10)}`;
+    setPaymentModal({
+      isOpen: true,
+      item,
+      employee: emp,
+      bankAccountId: defaultBankId,
+      paymentReference: defaultRef,
+      paymentDate: new Date().toISOString().slice(0, 10),
+      notes: "",
+      loading: false,
+      error: null,
+      success: null,
+    });
+  };
+
+  // Confirm and execute payment in Accounting & sync to HRMS
+  const handleConfirmPayment = async () => {
+    if (!paymentModal.item || !companyId) return;
+    if (!paymentModal.paymentReference.trim()) {
+      setPaymentModal((prev) => ({ ...prev, error: "Payment reference is required" }));
+      return;
+    }
+
+    setPaymentModal((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const payload = {
+        companyId,
+        settlementType: paymentModal.item.sourceType || "PAYROLL",
+        bankAccountId: paymentModal.bankAccountId || defaultBankId,
+        paymentDate: paymentModal.paymentDate,
+        bankReference: paymentModal.paymentReference.trim(),
+        allocations: [
+          {
+            payableId: paymentModal.item.payableId,
+            amountMinorUnits: paymentModal.item.pendingAmountMinorUnits,
+          },
+        ],
+      };
+
+      const res = await createHrmsSettlementApi(payload);
+      if (res?.data?.success) {
+        setPaymentModal((prev) => ({
+          ...prev,
+          loading: false,
+          success: "Payment recorded successfully! HRMS payroll tracker has been synced to Paid.",
+        }));
+        await fetchReport(true);
+        setTimeout(() => {
+          setPaymentModal((prev) => ({ ...prev, isOpen: false }));
+        }, 1500);
+      } else {
+        setPaymentModal((prev) => ({
+          ...prev,
+          loading: false,
+          error: res?.data?.message || "Failed to process payment",
+        }));
+      }
+    } catch (err) {
+      console.error("Error processing payment:", err);
+      setPaymentModal((prev) => ({
+        ...prev,
+        loading: false,
+        error:
+          err?.response?.data?.message ||
+          err?.message ||
+          "Payment failed. Check your bank account configuration.",
+      }));
+    }
   };
 
   // Export CSV
@@ -722,6 +838,7 @@ export default function ExecutiveEmployeeDuesPage() {
                                   <th className="px-4 py-3 text-right">Amount Paid</th>
                                   <th className="px-4 py-3 text-right">Remaining Due</th>
                                   <th className="px-4 py-3 text-center">Status</th>
+                                  <th className="px-4 py-3 text-center">Action</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -796,6 +913,27 @@ export default function ExecutiveEmployeeDuesPage() {
                                           </span>
                                         )}
                                       </td>
+
+                                      {/* Action Button */}
+                                      <td className="px-4 py-3 text-center">
+                                        {isItemPaid ? (
+                                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Settled
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenPayModal(item, emp);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow transition-all active:scale-95"
+                                          >
+                                            <CreditCard className="w-3 h-3" />
+                                            Pay
+                                          </button>
+                                        )}
+                                      </td>
                                     </tr>
                                   );
                                 })}
@@ -812,6 +950,197 @@ export default function ExecutiveEmployeeDuesPage() {
           </div>
         )}
       </div>
+
+      {/* Payment Confirmation Dialog */}
+      <AnimatePresence>
+        {paymentModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden"
+            >
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50 to-teal-50">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Confirm Payment
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Disburse employee payment & sync status to HRMS
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={paymentModal.loading}
+                  onClick={() => setPaymentModal((prev) => ({ ...prev, isOpen: false }))}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-4">
+                {/* Summary Card */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-medium">Employee</span>
+                    <span className="font-bold text-slate-800">
+                      {paymentModal.employee?.employeeName} {paymentModal.employee?.employeeCode && `(#${paymentModal.employee?.employeeCode})`}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-medium">Due Type</span>
+                    <span className="font-semibold text-slate-800">
+                      {paymentModal.item?.sourceType === "CLAIM" ? "Approved Claim" : "Payroll Net Salary"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-medium">Reference ID</span>
+                    <span className="font-mono font-semibold text-slate-700">
+                      {paymentModal.item?.paymentId || paymentModal.item?.sourceId}
+                    </span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">Disbursement Amount</span>
+                    <span className="text-lg font-black text-emerald-600 tabular-nums">
+                      {formatINR(paymentModal.item?.pendingAmountMinorUnits)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Form Inputs */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Bank Ledger Account
+                    </label>
+                    <select
+                      value={paymentModal.bankAccountId}
+                      onChange={(e) => setPaymentModal((prev) => ({ ...prev, bankAccountId: e.target.value }))}
+                      disabled={paymentModal.loading}
+                      className="w-full text-xs rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      {bankAccounts.length === 0 ? (
+                        <option value="">Default Configured Bank Account</option>
+                      ) : (
+                        bankAccounts.map((acc) => (
+                          <option key={acc._id} value={acc._id}>
+                            {acc.code} — {acc.name} ({acc.groupName || "Bank"})
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Bank / Payment Ref <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={paymentModal.paymentReference}
+                        onChange={(e) => setPaymentModal((prev) => ({ ...prev, paymentReference: e.target.value }))}
+                        placeholder="e.g. NEFT-987654"
+                        disabled={paymentModal.loading}
+                        className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Payment Date
+                      </label>
+                      <input
+                        type="date"
+                        value={paymentModal.paymentDate}
+                        onChange={(e) => setPaymentModal((prev) => ({ ...prev, paymentDate: e.target.value }))}
+                        disabled={paymentModal.loading}
+                        className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Notes (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentModal.notes}
+                      onChange={(e) => setPaymentModal((prev) => ({ ...prev, notes: e.target.value }))}
+                      placeholder="e.g. Monthly payroll settlement"
+                      disabled={paymentModal.loading}
+                      className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Explanation Banner */}
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-blue-700 leading-relaxed">
+                    Confirming will post a <strong>Payment Voucher</strong> in Accounting and automatically sync this payment to HRMS, moving the tracker from <strong>Unpaid</strong> to <strong>Paid</strong>.
+                  </p>
+                </div>
+
+                {/* Error Banner */}
+                {paymentModal.error && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2 text-xs text-red-700">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{paymentModal.error}</span>
+                  </div>
+                )}
+
+                {/* Success Banner */}
+                {paymentModal.success && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-800 font-semibold">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span>{paymentModal.success}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  disabled={paymentModal.loading}
+                  onClick={() => setPaymentModal((prev) => ({ ...prev, isOpen: false }))}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={paymentModal.loading || !!paymentModal.success}
+                  onClick={handleConfirmPayment}
+                  className="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {paymentModal.loading ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Processing & Syncing HRMS...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Confirm & Pay
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
