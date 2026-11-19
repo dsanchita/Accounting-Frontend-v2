@@ -24,7 +24,11 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../contexts/AuthContext";
-import { getExecutiveEmployeeDuesApi } from "../apis/hrmsIntegrationApi";
+import {
+  getExecutiveEmployeeDuesApi,
+  createHrmsSettlementApi,
+  getHrmsIntegrationCompanyDataApi,
+} from "../apis/hrmsIntegrationApi";
 
 const formatINR = (minorUnits, currency = "INR") => {
   const value = (minorUnits || 0) / 100;
@@ -51,8 +55,9 @@ const formatDate = (dateString) => {
 };
 
 export default function ExecutiveEmployeeDuesPage() {
-  const { user } = useAuth();
-  const companyId = user?.company?._id;
+  const { user, company } = useAuth();
+  const companyId =
+    company?._id || user?.company?._id || JSON.parse(localStorage.getItem("selectedCompany") || "{}")._id;
 
   // Filter States
   const [datePreset, setDatePreset] = useState("all");
@@ -71,6 +76,24 @@ export default function ExecutiveEmployeeDuesPage() {
 
   // UI state for expandable employee cards
   const [expandedEmployees, setExpandedEmployees] = useState({});
+
+  // Multi-select state: Map of payableId -> { item, employee }
+  const [selectedPayables, setSelectedPayables] = useState({});
+
+  // Bank accounts & Payment Dialog State
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [defaultBankId, setDefaultBankId] = useState("");
+  const [paymentModal, setPaymentModal] = useState({
+    isOpen: false,
+    items: [],
+    bankAccountId: "",
+    paymentReference: "",
+    paymentDate: new Date().toISOString().slice(0, 10),
+    notes: "",
+    loading: false,
+    error: null,
+    success: null,
+  });
 
   // Preset Date Handlers
   const handlePresetChange = (preset) => {
@@ -164,6 +187,260 @@ export default function ExecutiveEmployeeDuesPage() {
     setExpandedEmployees({});
   };
 
+  // Load configured company bank accounts for payments
+  useEffect(() => {
+    if (!companyId) return;
+    getHrmsIntegrationCompanyDataApi(companyId)
+      .then((res) => {
+        const data = res?.data?.data;
+        if (data?.accounts) {
+          const bankIds = new Set(data?.config?.bankAccountIds || []);
+          const activeBanks = data.accounts.filter(
+            (acc) =>
+              bankIds.has(acc._id) ||
+              acc.groupId?.nature === "Asset" ||
+              acc.groupName?.toLowerCase().includes("bank")
+          );
+          setBankAccounts(activeBanks.length > 0 ? activeBanks : data.accounts);
+          const firstConfigured = data.accounts.find((acc) => bankIds.has(acc._id))?._id;
+          setDefaultBankId(firstConfigured || activeBanks[0]?._id || "");
+        }
+      })
+      .catch((err) => console.warn("Could not load company bank accounts:", err));
+  }, [companyId]);
+
+  // Pending payables across all visible employees
+  const allPendingPayables = useMemo(() => {
+    const list = [];
+    (reportData?.employees || []).forEach((emp) => {
+      (emp.items || []).forEach((item) => {
+        if (item.status !== "SETTLED" && (item.pendingAmountMinorUnits || 0) > 0) {
+          list.push({ item, employee: emp });
+        }
+      });
+    });
+    return list;
+  }, [reportData?.employees]);
+
+  const selectedCount = Object.keys(selectedPayables).length;
+  const isAllSelected =
+    allPendingPayables.length > 0 &&
+    allPendingPayables.every(({ item }) => !!selectedPayables[item.payableId]);
+  const isPartiallySelected = selectedCount > 0 && !isAllSelected;
+
+  const selectedEmployeeCount = useMemo(() => {
+    const set = new Set();
+    Object.values(selectedPayables).forEach(({ employee }) => {
+      set.add(employee.employeeId || employee.employeeName);
+    });
+    return set.size;
+  }, [selectedPayables]);
+
+  const selectedTotalAmount = useMemo(() => {
+    return Object.values(selectedPayables).reduce(
+      (sum, { item }) => sum + (item.pendingAmountMinorUnits || 0),
+      0
+    );
+  }, [selectedPayables]);
+
+  // Selection toggles
+  const toggleSelectItem = (item, emp) => {
+    if (item.status === "SETTLED" || (item.pendingAmountMinorUnits || 0) <= 0) return;
+    setSelectedPayables((prev) => {
+      const next = { ...prev };
+      if (next[item.payableId]) {
+        delete next[item.payableId];
+      } else {
+        next[item.payableId] = { item, employee: emp };
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectEmployee = (emp) => {
+    const payableItems = (emp.items || []).filter(
+      (item) => item.status !== "SETTLED" && (item.pendingAmountMinorUnits || 0) > 0
+    );
+    if (payableItems.length === 0) return;
+
+    setSelectedPayables((prev) => {
+      const next = { ...prev };
+      const allSelected = payableItems.every((item) => !!next[item.payableId]);
+      if (allSelected) {
+        payableItems.forEach((item) => {
+          delete next[item.payableId];
+        });
+      } else {
+        payableItems.forEach((item) => {
+          next[item.payableId] = { item, employee: emp };
+        });
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedPayables({});
+    } else {
+      const next = {};
+      allPendingPayables.forEach(({ item, employee }) => {
+        next[item.payableId] = { item, employee };
+      });
+      setSelectedPayables(next);
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedPayables({});
+  };
+
+  // Open Payment Confirmation Dialog for single item
+  const handleOpenPayModal = (item, emp) => {
+    const defaultRef = `${item.sourceType === "CLAIM" ? "CLAIM" : "SALARY"}-${new Date().toISOString().slice(0, 10)}`;
+    setPaymentModal({
+      isOpen: true,
+      items: [
+        {
+          ...item,
+          employeeName: emp.employeeName,
+          employeeCode: emp.employeeCode,
+          employeeDepartment: emp.employeeDepartment,
+          employeeId: emp.employeeId,
+        },
+      ],
+      bankAccountId: defaultBankId,
+      paymentReference: defaultRef,
+      paymentDate: new Date().toISOString().slice(0, 10),
+      notes: "",
+      loading: false,
+      error: null,
+      success: null,
+    });
+  };
+
+  // Open Payment Confirmation Dialog for bulk/multi selected items
+  const handleOpenBulkPayModal = () => {
+    const items = Object.values(selectedPayables).map(({ item, employee }) => ({
+      ...item,
+      employeeName: employee.employeeName,
+      employeeCode: employee.employeeCode,
+      employeeDepartment: employee.employeeDepartment,
+      employeeId: employee.employeeId,
+    }));
+    if (items.length === 0) return;
+
+    const hasPayroll = items.some((it) => it.sourceType !== "CLAIM");
+    const hasClaim = items.some((it) => it.sourceType === "CLAIM");
+    const typeLabel = hasPayroll && hasClaim ? "DUES" : hasClaim ? "CLAIM" : "SALARY";
+    const defaultRef = `BULK-${typeLabel}-${new Date().toISOString().slice(0, 10)}`;
+
+    setPaymentModal({
+      isOpen: true,
+      items,
+      bankAccountId: defaultBankId,
+      paymentReference: defaultRef,
+      paymentDate: new Date().toISOString().slice(0, 10),
+      notes: `Bulk settlement of ${items.length} employee dues`,
+      loading: false,
+      error: null,
+      success: null,
+    });
+  };
+
+  // Confirm and execute payment in Accounting & sync to HRMS
+  const handleConfirmPayment = async () => {
+    const itemsToPay = paymentModal.items || [];
+    if (!itemsToPay.length || !companyId) return;
+    if (!paymentModal.paymentReference.trim()) {
+      setPaymentModal((prev) => ({ ...prev, error: "Payment reference is required" }));
+      return;
+    }
+
+    setPaymentModal((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const bankAccountId = paymentModal.bankAccountId || defaultBankId;
+      const paymentDate = paymentModal.paymentDate;
+      const baseRef = paymentModal.paymentReference.trim();
+
+      const payrollItems = itemsToPay.filter((x) => x.sourceType !== "CLAIM");
+      const claimItems = itemsToPay.filter((x) => x.sourceType === "CLAIM");
+
+      const promises = [];
+
+      if (payrollItems.length > 0) {
+        const payrollPayload = {
+          companyId,
+          settlementType: "PAYROLL",
+          bankAccountId,
+          paymentDate,
+          bankReference: claimItems.length > 0 ? `${baseRef}-PAY` : baseRef,
+          allocations: payrollItems.map((item) => ({
+            payableId: item.payableId,
+            amountMinorUnits: item.pendingAmountMinorUnits,
+          })),
+        };
+        promises.push(createHrmsSettlementApi(payrollPayload));
+      }
+
+      if (claimItems.length > 0) {
+        const claimPayload = {
+          companyId,
+          settlementType: "CLAIM",
+          bankAccountId,
+          paymentDate,
+          bankReference: payrollItems.length > 0 ? `${baseRef}-CLM` : baseRef,
+          allocations: claimItems.map((item) => ({
+            payableId: item.payableId,
+            amountMinorUnits: item.pendingAmountMinorUnits,
+          })),
+        };
+        promises.push(createHrmsSettlementApi(claimPayload));
+      }
+
+      const results = await Promise.all(promises);
+      const failed = results.find((res) => !res?.data?.success);
+
+      if (failed) {
+        throw new Error(failed?.data?.message || "One or more settlements failed to process");
+      }
+
+      const totalPaidAmount = itemsToPay.reduce((s, x) => s + (x.pendingAmountMinorUnits || 0), 0);
+      setPaymentModal((prev) => ({
+        ...prev,
+        loading: false,
+        success: `Payment of ${formatINR(
+          totalPaidAmount
+        )} recorded successfully! HRMS payroll & claims tracker synced to Paid.`,
+      }));
+
+      // Deselect the settled items
+      setSelectedPayables((prev) => {
+        const next = { ...prev };
+        itemsToPay.forEach((it) => {
+          delete next[it.payableId];
+        });
+        return next;
+      });
+
+      await fetchReport(true);
+      setTimeout(() => {
+        setPaymentModal((prev) => ({ ...prev, isOpen: false }));
+      }, 1500);
+    } catch (err) {
+      console.error("Error processing payment:", err);
+      setPaymentModal((prev) => ({
+        ...prev,
+        loading: false,
+        error:
+          err?.response?.data?.message ||
+          err?.message ||
+          "Payment failed. Check your bank account configuration.",
+      }));
+    }
+  };
+
   // Export CSV
   const handleExportCSV = () => {
     if (!reportData?.employees?.length) return;
@@ -222,6 +499,19 @@ export default function ExecutiveEmployeeDuesPage() {
     if (!summary?.totalDueMinorUnits) return 0;
     return Math.min(100, Math.round((summary.totalPaidMinorUnits / summary.totalDueMinorUnits) * 100));
   }, [summary]);
+
+  const isSingle = (paymentModal.items || []).length === 1;
+  const singleItem = paymentModal.items?.[0];
+  const totalModalAmount = (paymentModal.items || []).reduce(
+    (sum, it) => sum + (it.pendingAmountMinorUnits || 0),
+    0
+  );
+  const modalPayrollItems = (paymentModal.items || []).filter((it) => it.sourceType !== "CLAIM");
+  const modalClaimItems = (paymentModal.items || []).filter((it) => it.sourceType === "CLAIM");
+  const modalEmployeesCount = useMemo(
+    () => new Set((paymentModal.items || []).map((x) => x.employeeId || x.employeeName)).size,
+    [paymentModal.items]
+  );
 
   return (
     <div className="space-y-6">
@@ -528,35 +818,70 @@ export default function ExecutiveEmployeeDuesPage() {
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         {/* Table / List Header */}
         <div className="p-4 md:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60">
-          <div>
-            <h2 className="text-sm md:text-base font-bold text-slate-900 flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-600" />
-              Employee Dues Breakdown
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
-                {employees.length}
-              </span>
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Click on any employee to expand individual approved claims and payroll runs.
-            </p>
+          <div className="flex items-center gap-3">
+            {allPendingPayables.length > 0 && (
+              <div
+                onClick={toggleSelectAll}
+                className="p-1 cursor-pointer flex items-center shrink-0"
+                title={isAllSelected ? "Deselect all pending dues" : "Select all pending dues"}
+              >
+                <input
+                  type="checkbox"
+                  checked={isAllSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = isPartiallySelected;
+                  }}
+                  onChange={() => {}}
+                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+              </div>
+            )}
+            <div>
+              <h2 className="text-sm md:text-base font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                <Users className="w-4 h-4 text-blue-600" />
+                Employee Dues Breakdown
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
+                  {employees.length}
+                </span>
+                {selectedCount > 0 && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700 border border-blue-200">
+                    {selectedCount} selected ({formatINR(selectedTotalAmount)})
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Click on any employee to expand individual approved claims and payroll runs.
+              </p>
+            </div>
           </div>
 
-          {employees.length > 0 && (
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {selectedCount > 0 && (
               <button
-                onClick={expandAll}
-                className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm transition-all"
+                onClick={handleOpenBulkPayModal}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-600/20 transition-all active:scale-95"
               >
-                Expand All
+                <CreditCard className="w-3.5 h-3.5" />
+                Pay Selected ({selectedCount})
               </button>
-              <button
-                onClick={collapseAll}
-                className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm transition-all"
-              >
-                Collapse All
-              </button>
-            </div>
-          )}
+            )}
+            {employees.length > 0 && (
+              <>
+                <button
+                  onClick={expandAll}
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm transition-all"
+                >
+                  Expand All
+                </button>
+                <button
+                  onClick={collapseAll}
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm transition-all"
+                >
+                  Collapse All
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Loading State */}
@@ -585,6 +910,14 @@ export default function ExecutiveEmployeeDuesPage() {
               const isFullyPaid = emp.totalPendingMinorUnits === 0 && emp.totalDueMinorUnits > 0;
               const hasClaims = emp.claims?.count > 0;
               const hasPayroll = emp.payroll?.count > 0;
+              const payableItems = (emp.items || []).filter(
+                (item) => item.status !== "SETTLED" && (item.pendingAmountMinorUnits || 0) > 0
+              );
+              const selectedItemsForEmp = payableItems.filter((item) => !!selectedPayables[item.payableId]);
+              const isEmployeeAllSelected =
+                payableItems.length > 0 && selectedItemsForEmp.length === payableItems.length;
+              const isEmployeePartiallySelected =
+                selectedItemsForEmp.length > 0 && !isEmployeeAllSelected;
 
               return (
                 <div key={empKey} className="transition-colors hover:bg-slate-50/70">
@@ -593,9 +926,35 @@ export default function ExecutiveEmployeeDuesPage() {
                     onClick={() => toggleEmployeeExpand(empKey)}
                     className="p-4 md:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 cursor-pointer select-none"
                   >
-                    {/* Left: Employee Identity */}
-                    <div className="flex items-center gap-3.5 min-w-[240px]">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-100 to-indigo-100 border border-blue-200 flex items-center justify-center font-bold text-sm text-blue-700 shadow-sm">
+                    {/* Left: Employee Selection Checkbox & Identity */}
+                    <div className="flex items-center gap-3 min-w-[260px]">
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelectEmployee(emp);
+                        }}
+                        className="p-1 cursor-pointer flex items-center justify-center shrink-0"
+                        title={
+                          isFullyPaid
+                            ? "All dues paid for this employee"
+                            : isEmployeeAllSelected
+                            ? "Deselect employee dues"
+                            : "Select all employee dues"
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={isFullyPaid}
+                          checked={isEmployeeAllSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = isEmployeePartiallySelected;
+                          }}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        />
+                      </div>
+
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-100 to-indigo-100 border border-blue-200 flex items-center justify-center font-bold text-sm text-blue-700 shadow-sm shrink-0">
                         {emp.employeeName?.charAt(0)?.toUpperCase() || "E"}
                       </div>
                       <div>
@@ -713,6 +1072,22 @@ export default function ExecutiveEmployeeDuesPage() {
                             <table className="w-full text-left text-xs">
                               <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
                                 <tr>
+                                  <th className="px-3 py-3 w-10 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={isEmployeeAllSelected}
+                                      ref={(el) => {
+                                        if (el) el.indeterminate = isEmployeePartiallySelected;
+                                      }}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        toggleSelectEmployee(emp);
+                                      }}
+                                      disabled={payableItems.length === 0}
+                                      title="Select all pending items for this employee"
+                                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:opacity-30"
+                                    />
+                                  </th>
                                   <th className="px-4 py-3">Type</th>
                                   <th className="px-4 py-3">Reference / ID</th>
                                   <th className="px-4 py-3">Description</th>
@@ -722,16 +1097,34 @@ export default function ExecutiveEmployeeDuesPage() {
                                   <th className="px-4 py-3 text-right">Amount Paid</th>
                                   <th className="px-4 py-3 text-right">Remaining Due</th>
                                   <th className="px-4 py-3 text-center">Status</th>
+                                  <th className="px-4 py-3 text-center">Action</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 text-slate-700">
                                 {(emp.items || []).map((item, idx) => {
                                   const isItemPaid = item.status === "SETTLED" || item.pendingAmountMinorUnits === 0;
+                                  const isItemSelected = !!selectedPayables[item.payableId];
                                   return (
                                     <tr
                                       key={item.payableId || idx}
-                                      className="hover:bg-slate-50/70 transition-colors"
+                                      className={`transition-colors ${
+                                        isItemSelected
+                                          ? "bg-blue-50/60 hover:bg-blue-50/80"
+                                          : "hover:bg-slate-50/70"
+                                      }`}
                                     >
+                                      {/* Checkbox */}
+                                      <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                          type="checkbox"
+                                          disabled={isItemPaid}
+                                          checked={isItemSelected}
+                                          onChange={() => toggleSelectItem(item, emp)}
+                                          title={isItemPaid ? "Item is fully settled" : "Select item for payment"}
+                                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                        />
+                                      </td>
+
                                       {/* Type Badge */}
                                       <td className="px-4 py-3 font-semibold">
                                         {item.sourceType === "CLAIM" ? (
@@ -796,6 +1189,27 @@ export default function ExecutiveEmployeeDuesPage() {
                                           </span>
                                         )}
                                       </td>
+
+                                      {/* Action Button */}
+                                      <td className="px-4 py-3 text-center">
+                                        {isItemPaid ? (
+                                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Settled
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenPayModal(item, emp);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow transition-all active:scale-95"
+                                          >
+                                            <CreditCard className="w-3 h-3" />
+                                            Pay
+                                          </button>
+                                        )}
+                                      </td>
                                     </tr>
                                   );
                                 })}
@@ -812,6 +1226,319 @@ export default function ExecutiveEmployeeDuesPage() {
           </div>
         )}
       </div>
+
+      {/* Floating Multi-Select Action Bar */}
+      <AnimatePresence>
+        {selectedCount > 0 && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[95%] max-w-2xl bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-800 p-4 px-5 flex flex-col sm:flex-row items-center justify-between gap-3 backdrop-blur-md bg-slate-900/95"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-600/30 border border-blue-500/40 text-blue-400 flex items-center justify-center font-bold text-xs shrink-0">
+                {selectedCount}
+              </div>
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
+                  <span>
+                    {selectedCount} item{selectedCount > 1 ? "s" : ""} selected
+                  </span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-slate-300 font-medium">
+                    {selectedEmployeeCount} employee{selectedEmployeeCount > 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  Total Payable:{" "}
+                  <span className="font-bold text-emerald-400 tabular-nums">
+                    {formatINR(selectedTotalAmount)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenBulkPayModal}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/40 transition-all active:scale-95"
+              >
+                <CreditCard className="w-4 h-4" />
+                Pay Selected ({formatINR(selectedTotalAmount)})
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Payment Confirmation Dialog */}
+      <AnimatePresence>
+        {paymentModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`bg-white rounded-2xl shadow-2xl border border-slate-200 w-full overflow-hidden ${
+                isSingle ? "max-w-lg" : "max-w-xl"
+              }`}
+            >
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50 to-teal-50">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
+                    <CreditCard className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      {isSingle ? "Confirm Payment" : `Confirm Payment (${paymentModal.items.length} items)`}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {isSingle
+                        ? "Disburse employee payment & sync status to HRMS"
+                        : `Disburse payments for ${modalEmployeesCount} employees & sync status to HRMS`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={paymentModal.loading}
+                  onClick={() => setPaymentModal((prev) => ({ ...prev, isOpen: false }))}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-white transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+                {/* Summary Card */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                  {isSingle ? (
+                    <>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-500 font-medium">Employee</span>
+                        <span className="font-bold text-slate-800">
+                          {singleItem?.employeeName} {singleItem?.employeeCode && `(#${singleItem?.employeeCode})`}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-500 font-medium">Due Type</span>
+                        <span className="font-semibold text-slate-800">
+                          {singleItem?.sourceType === "CLAIM" ? "Approved Claim" : "Payroll Net Salary"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-500 font-medium">Reference ID</span>
+                        <span className="font-mono font-semibold text-slate-700">
+                          {singleItem?.paymentId || singleItem?.sourceId}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-500 font-medium">Selected Items</span>
+                        <span className="font-bold text-slate-800">
+                          {paymentModal.items.length} items ({modalEmployeesCount} employees)
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-500 font-medium">Breakdown</span>
+                        <span className="font-medium text-slate-700 flex items-center gap-2 flex-wrap">
+                          {modalPayrollItems.length > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-semibold">
+                              Payroll: {formatINR(modalPayrollItems.reduce((s, x) => s + (x.pendingAmountMinorUnits || 0), 0))} ({modalPayrollItems.length})
+                            </span>
+                          )}
+                          {modalClaimItems.length > 0 && (
+                            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-semibold">
+                              Claims: {formatINR(modalClaimItems.reduce((s, x) => s + (x.pendingAmountMinorUnits || 0), 0))} ({modalClaimItems.length})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      {/* Scrollable list of items to be settled */}
+                      <div className="pt-2">
+                        <div className="text-[11px] font-bold text-slate-600 mb-1.5">
+                          Included Allocations:
+                        </div>
+                        <div className="max-h-36 overflow-y-auto divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white text-xs">
+                          {paymentModal.items.map((it, idx) => (
+                            <div key={it.payableId || idx} className="p-2 flex items-center justify-between hover:bg-slate-50">
+                              <div className="min-w-0 pr-2">
+                                <div className="font-semibold text-slate-800 truncate">
+                                  {it.employeeName} {it.employeeCode ? `(#${it.employeeCode})` : ""}
+                                </div>
+                                <div className="text-[10px] text-slate-500 flex items-center gap-1.5 font-mono">
+                                  <span
+                                    className={`px-1 py-0.2 rounded font-sans font-bold text-[9px] ${
+                                      it.sourceType === "CLAIM"
+                                        ? "bg-blue-100 text-blue-700"
+                                        : "bg-indigo-100 text-indigo-700"
+                                    }`}
+                                  >
+                                    {it.sourceType === "CLAIM" ? "Claim" : "Payroll"}
+                                  </span>
+                                  <span>{it.paymentId || it.sourceId}</span>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="font-bold text-slate-900 tabular-nums">
+                                  {formatINR(it.pendingAmountMinorUnits)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">Total Disbursement Amount</span>
+                    <span className="text-lg font-black text-emerald-600 tabular-nums">
+                      {formatINR(totalModalAmount)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Form Inputs */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Bank Ledger Account
+                    </label>
+                    <select
+                      value={paymentModal.bankAccountId}
+                      onChange={(e) => setPaymentModal((prev) => ({ ...prev, bankAccountId: e.target.value }))}
+                      disabled={paymentModal.loading}
+                      className="w-full text-xs rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      {bankAccounts.length === 0 ? (
+                        <option value="">Default Configured Bank Account</option>
+                      ) : (
+                        bankAccounts.map((acc) => (
+                          <option key={acc._id} value={acc._id}>
+                            {acc.code} — {acc.name} ({acc.groupName || "Bank"})
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Bank / Payment Ref <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={paymentModal.paymentReference}
+                        onChange={(e) => setPaymentModal((prev) => ({ ...prev, paymentReference: e.target.value }))}
+                        placeholder="e.g. NEFT-987654"
+                        disabled={paymentModal.loading}
+                        className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Payment Date
+                      </label>
+                      <input
+                        type="date"
+                        value={paymentModal.paymentDate}
+                        onChange={(e) => setPaymentModal((prev) => ({ ...prev, paymentDate: e.target.value }))}
+                        disabled={paymentModal.loading}
+                        className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Notes (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={paymentModal.notes}
+                      onChange={(e) => setPaymentModal((prev) => ({ ...prev, notes: e.target.value }))}
+                      placeholder="e.g. Monthly payroll settlement"
+                      disabled={paymentModal.loading}
+                      className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Explanation Banner */}
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-blue-700 leading-relaxed">
+                    Confirming will post <strong>Payment Voucher{isSingle ? "" : "(s)"}</strong> in Accounting and automatically sync this payment to HRMS, moving the tracker from <strong>Unpaid</strong> to <strong>Paid</strong>.
+                  </p>
+                </div>
+
+                {/* Error Banner */}
+                {paymentModal.error && (
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2 text-xs text-red-700">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{paymentModal.error}</span>
+                  </div>
+                )}
+
+                {/* Success Banner */}
+                {paymentModal.success && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-800 font-semibold">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span>{paymentModal.success}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  disabled={paymentModal.loading}
+                  onClick={() => setPaymentModal((prev) => ({ ...prev, isOpen: false }))}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={paymentModal.loading || !!paymentModal.success}
+                  onClick={handleConfirmPayment}
+                  className="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {paymentModal.loading ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Processing & Syncing HRMS...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Confirm & Pay {formatINR(totalModalAmount)}
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
